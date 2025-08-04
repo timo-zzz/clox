@@ -6,13 +6,18 @@
 
 typedef enum {
     OP_CONSTANT,
+    OP_ADD,
+    OP_SUBTRACT,
+    OP_MULTIPLY,
+    OP_DIVIDE,
+    OP_NEGATE,
     OP_RETURN,
 } OpCode; // Operation Code
 
 typedef struct {
     int count;
     int capacity;
-    uint8_t* code;
+    uint8_t* code; // Byte array because it is BYTEcode. Took me too long to make that connection.
     int* lines;
     ValueArray constants;
 } Chunk; // Chunk of bytecode
