@@ -15,11 +15,11 @@ typedef enum {
 } OpCode; // Operation Code
 
 typedef struct {
-    int count;
-    int capacity;
+    int count;     // Number of bytes being currently used
+    int capacity;  // Max array capacity
     uint8_t* code; // Byte array because it is BYTEcode. Took me too long to make that connection.
     int* lines;
-    ValueArray constants;
+    ValueArray constants; // Constant pool. The stack will store an index into this array for constants.
 } Chunk; // Chunk of bytecode
 
 void initChunk(Chunk* chunk);

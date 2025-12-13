@@ -29,7 +29,7 @@ Value pop() {
 }
 
 static InterpretResult run() {
-#define READ_BYTE() (*vm.ip++) // The IP always points to the next byte of code.
+#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code.
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // The bytecode array stores the index of a Value in the constant pool.
 #define BINARY_OP(op) \
     do { \
@@ -74,9 +74,23 @@ static InterpretResult run() {
 #undef BINARY_OP
 }
 
+// Prepare a chunk in the VM for execution
 InterpretResult interpret(const char* source) {
-    compile(source);
-    return INTERPRET_OK;
+    Chunk chunk;
+    initChunk(&chunk);
+
+    if (!compile(source, &chunk)) { // If theres a compilation error
+        freeChunk(&chunk);
+        return INTERPRET_COMPILE_ERROR;
+    }
+
+    vm.chunk = &chunk;
+    vm.ip = vm.chunk->code; // VM's instruction pointer now points to the newest instruction
+
+    InterpretResult result = run(); // Execute!
+
+    freeChunk(&chunk); // Free chunk after its done executing
+    return result;
 }
 
 
