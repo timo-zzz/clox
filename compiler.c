@@ -13,6 +13,12 @@ typedef struct {
 } Parser;
 
 Parser parser;
+Chunk* compilingChunk;
+
+// For user-defined function, the "current chunk" becomes a bit more nuanced. So, this will hold that logic.
+static Chunk* currentChuck() {
+    return compilingChunk;
+}
 
 static void errorAt(Token* token, const char* message) {
     if (parser.panicMode) return; // If in panic mode, ignore errors until recovery point (will be added later)
@@ -67,14 +73,37 @@ static void consume(TokenType type, const char* message) {
     errorAtCurrent(message);
 }
 
+// Add a byte (opcode or operand) to the chunk. The previous token's line info is sent so that runtime errors are associated with that line.
+static void emitByte(uint8_t byte) {
+    writeChunk(currentChunk(), byte, parser.previous.line);
+}
+
+static void emitBytes(uint8_t byte1, uint8t byte2) {
+    emitByte(byte1);
+    emitByte(byte2);
+}
+
+// When clox is run, it parses, compiles, and executes an expression, then prints it result. So, we temporarily use return to do that.
+static void emitReturn() {
+    emitByte(OP_RETURN);
+}
+
+static void endCompiler() {
+    emitReturn();
+}
+
 bool compile(const char* source, Chunk* chunk) {
     // Initilization
     initScanner(source);
+    compilingChunk = chunk;
+
+
     parser.hadError = false;
     parser.panicMode = false;
 
     advance();
     expression(); // Latuh
     consume(TOKEN_EOF, "Expect end of expression"); // Expect end of file
+    endCompiler(); // Adds OP_RETURN to the end of the chunk
     return !parser.hadError; // Returns whether or not compilation suceeded (false if theres an error)
 }
