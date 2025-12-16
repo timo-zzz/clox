@@ -88,8 +88,39 @@ static void emitReturn() {
     emitByte(OP_RETURN);
 }
 
+// Adds a value to the end of current chunk's constant table/pool, and then returns its index
+static uint8_t makeConstant(Value value) {
+    int constantIndex = addConstant(currentChunk(), value);
+    if (constantIndex > UINT8_MAX) {
+        error("Too many constants in one chunk."); // Chunk of BYTEcode
+        return 0;
+    }
+
+    return (uint8_t)constantIndex;
+}
+
+// Adds a constant to the constant table, pushes its index in the constant table onto the stack, then pushes a constant opcode onto the stack
+static void emitConstant(Value value) {
+    emitBytes(OP_CONSTANT, makeConstant(value));
+}
+
 static void endCompiler() {
     emitReturn();
+}
+
+static void number() {
+    // Assume the token has already been consumed (use the previous token)
+    double value = strtod(parser.previous.start, NULL);
+    emitConstant(value);
+}
+
+/* 
+   Each expression is represented by a token type, and gets its own function. Then, we create an arry of pointers to these functions. The
+   indexes in this array will correspond to the TokenType enum values (enums are just numbers with names!). Of course, the function at a
+   TokenType's enum value index will compile bytecode for that expression.
+*/
+static void expression() {
+
 }
 
 bool compile(const char* source, Chunk* chunk) {
