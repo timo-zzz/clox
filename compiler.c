@@ -12,11 +12,26 @@ typedef struct {
     bool panicMode;
 } Parser;
 
+// Since enums are just numbers, some enums are larger numerically than others. That is their precedence value.
+typedef enum {
+    PREC_NONE,
+    PREC_ASSIGNMENT,  // =
+    PREC_OR,          // or
+    PREC_AND,         // and
+    PREC_EQUALITY,    // == !=
+    PREC_COMPARISON,  // < > <= >=
+    PREC_TERM,        // + -
+    PREC_FACTOR,      // * /
+    PREC_UNARY,       // ! -
+    PREC_CALL,        // . ()
+    PREC_PRIMARY
+} Precedence;
+
 Parser parser;
 Chunk* compilingChunk;
 
 // For user-defined function, the "current chunk" becomes a bit more nuanced. So, this will hold that logic.
-static Chunk* currentChuck() {
+static Chunk* currentChunk() {
     return compilingChunk;
 }
 
@@ -108,19 +123,45 @@ static void endCompiler() {
     emitReturn();
 }
 
+static void grouping() {
+    expression();
+    // Assumes the token has already been consumed
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
+
+    // Doesn't emit any bytecode because a grouping expression just changes precedence.
+}
+
 static void number() {
     // Assume the token has already been consumed (use the previous token)
     double value = strtod(parser.previous.start, NULL);
     emitConstant(value);
 }
 
+static void unary() {
+    // Assume the token has already been consumed (use the previous token)
+    TokenType operatorType = parser.previous.type;
+
+    // Compile/evaluate the operand. This is done first so negation is done correctly
+    parsePrecedence(PREC_UNARY);
+
+    // Emit the operator instruction. 
+    switch (operatorType) {
+        case TOKEN_MINUS: emitByte(OP_NEGATE); break;
+        default: return; // Unreachable
+    }
+}
+
+static void parsePrecedence(Precedence precedence) {
+
+}
+
 /* 
-   Each expression is represented by a token type, and gets its own function. Then, we create an arry of pointers to these functions. The
+   Each expression is represented by a token type, and gets its own function. Then, we create an array of pointers to these functions. The
    indexes in this array will correspond to the TokenType enum values (enums are just numbers with names!). Of course, the function at a
    TokenType's enum value index will compile bytecode for that expression.
 */
 static void expression() {
-
+    parsePrecedence(PREC_ASSIGNMENT);
 }
 
 bool compile(const char* source, Chunk* chunk) {
