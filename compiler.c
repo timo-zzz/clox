@@ -123,6 +123,21 @@ static void endCompiler() {
     emitReturn();
 }
 
+// Compiles the right operand, then emits the operation opcode
+static void binary() {
+    // Handles operation precedence, so we can use 1 function for all binary operations
+    TokenType operatorType = parser.previous.type;
+    ParseRule* rule getRule(operatorType);
+    parsePrecedence((Precedence)(rule->precedence + 1));
+
+    switch (operatorType) {
+        case TOKEN_PLUS:    emitByte(OP_ADD); break;
+        case TOKEN_MINUS:   emitByte(OP_SUBTRACT); break;
+        case TOKEN_STAR:    emitByte(OP_MULTIPLY); break;
+        case TOKEN_SLASH:   emitByte(OP_DIVIDE); break;
+    }
+}
+
 static void grouping() {
     expression();
     // Assumes the token has already been consumed
