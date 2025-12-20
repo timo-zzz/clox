@@ -5,6 +5,10 @@
 #include "compiler.h"
 #include "scanner.h"
 
+#ifdef DEBUG_PRINT_CODE
+#include "debug.h"
+#endif
+
 typedef struct {
     Token current;
     Token previous;
@@ -27,6 +31,15 @@ typedef enum {
     PREC_PRIMARY
 } Precedence;
 
+// Parsing function pointer type
+typedef void (*ParseFn)();
+
+typedef struct {
+    ParseFn prefix;        // The function to compile the prefix expression this token is used for
+    ParseFn infix;         // The function to compile the infix expression this token is used for
+    Precedence precedence; // The precedence of the infix expression when using this token as an operator
+} ParseRule; // Represents a row in the parser table (see line 178)
+
 Parser parser;
 Chunk* compilingChunk;
 
@@ -48,11 +61,12 @@ static void errorAt(Token* token, const char* message) {
         // Do nothing (errors found during scanning)
     } else {
         // Print which token the error is at
-        fprintf(stderr, "at '%.*s", token->length, token->start);
+        fprintf(stderr, " at '%.*s'", token->length, token->start);
     }
 
     // Print error message
     fprintf(stderr, ": %s\n", message);
+    parser.hadError = true;
 }
 
 // Reports an error at the token that was just consumed
@@ -93,7 +107,7 @@ static void emitByte(uint8_t byte) {
     writeChunk(currentChunk(), byte, parser.previous.line);
 }
 
-static void emitBytes(uint8_t byte1, uint8t byte2) {
+static void emitBytes(uint8_t byte1, uint8_t byte2) {
     emitByte(byte1);
     emitByte(byte2);
 }
@@ -121,14 +135,24 @@ static void emitConstant(Value value) {
 
 static void endCompiler() {
     emitReturn();
+#ifdef DEBUG_PRINT_CODE
+    if (!parser.hadError) {  // Only dump chunk if there was no errors
+        disassembleChunk(currentChunk(), "code");
+    }
+#endif
 }
+
+// Forward declarations for use in grammar production methods
+static void expression();
+static ParseRule* getRule(TokenType type);
+static void parsePrecedence(Precedence precedence);
 
 // Compiles the right operand, then emits the operation opcode
 static void binary() {
     // Handles operation precedence, so we can use 1 function for all binary operations
     TokenType operatorType = parser.previous.type;
-    ParseRule* rule getRule(operatorType);
-    parsePrecedence((Precedence)(rule->precedence + 1));
+    ParseRule* rule = getRule(operatorType);
+    parsePrecedence((Precedence)(rule->precedence + 1)); // +1 because binary operations associate left
 
     switch (operatorType) {
         case TOKEN_PLUS:    emitByte(OP_ADD); break;
@@ -136,7 +160,7 @@ static void binary() {
         case TOKEN_STAR:    emitByte(OP_MULTIPLY); break;
         case TOKEN_SLASH:   emitByte(OP_DIVIDE); break;
     }
-}
+} // yes
 
 static void grouping() {
     expression();
@@ -165,16 +189,78 @@ static void unary() {
         default: return; // Unreachable
     }
 }
+/*
+  Each expression has a corresponding TokenType. Since enums are just numbers, each TokenType enum is an index in this table of function pointers.
+  This information is stored in a ParseRule struct. So, using a token type, we can easily look up its compiling function. Th
+*/
+ParseRule rules[] = {
+    [TOKEN_LEFT_PAREN]    = {grouping, NULL,   PREC_NONE},
+    [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_COMMA]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_DOT]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_MINUS]         = {unary,    binary, PREC_TERM},
+    [TOKEN_PLUS]          = {NULL,     binary, PREC_TERM},
+    [TOKEN_SEMICOLON]     = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_SLASH]         = {NULL,     binary, PREC_FACTOR},
+    [TOKEN_STAR]          = {NULL,     binary, PREC_FACTOR},
+    [TOKEN_BANG]          = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_BANG_EQUAL]    = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_EQUAL]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_EQUAL_EQUAL]   = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_GREATER]       = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_GREATER_EQUAL] = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_LESS]          = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_LESS_EQUAL]    = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_STRING]        = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
+    [TOKEN_AND]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_ELSE]          = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_FALSE]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_FOR]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_FUN]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_IF]            = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_NIL]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_OR]            = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_PRINT]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_RETURN]        = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_SUPER]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_THIS]          = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_TRUE]          = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_VAR]           = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_WHILE]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_ERROR]         = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_EOF]           = {NULL,     NULL,   PREC_NONE},
+};
 
 static void parsePrecedence(Precedence precedence) {
+    advance();
 
+    // Parse prefix expression (the current token is ALWAYS a prefix expression)
+    ParseFn prefixRule = getRule(parser.previous.type)->prefix;
+    if (prefixRule == NULL) {
+        error("Expect expression.");
+        return;
+    }
+
+    prefixRule();
+
+    // Parse infix expressions (if precedence parameter permits)
+    while (precedence <= getRule(parser.current.type)->precedence) {
+        advance();
+        ParseFn infixRule = getRule(parser.previous.type)->infix;
+        infixRule();
+    }
 }
 
-/* 
-   Each expression is represented by a token type, and gets its own function. Then, we create an array of pointers to these functions. The
-   indexes in this array will correspond to the TokenType enum values (enums are just numbers with names!). Of course, the function at a
-   TokenType's enum value index will compile bytecode for that expression.
-*/
+// Look up a ParseRule using a TokenType. This is necessary because binary() recursively accesses the table (which stores binary in a rule)
+static ParseRule* getRule(TokenType type) {
+    return &rules[type];
+}
+
 static void expression() {
     parsePrecedence(PREC_ASSIGNMENT);
 }
