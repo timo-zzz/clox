@@ -192,6 +192,11 @@ static void number() {
     emitConstant(NUMBER_VAL(value));
 }
 
+static void string() {
+    // +1 and -2 trim quotation marks
+    emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2)));
+}
+
 static void unary() {
     // Assume the token has already been consumed (use the previous token)
     TokenType operatorType = parser.previous.type;
@@ -225,13 +230,13 @@ ParseRule rules[] = {
     [TOKEN_BANG]          = {unary,    NULL,   PREC_NONE},
     [TOKEN_BANG_EQUAL]    = {NULL,     binary, PREC_NONE},
     [TOKEN_EQUAL]         = {NULL,     NULL,   PREC_NONE},
-    [TOKEN_EQUAL_EQUAL]   = {NULL,     binary, PREC_NONE},
-    [TOKEN_GREATER]       = {NULL,     binary, PREC_NONE},
-    [TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_NONE},
-    [TOKEN_LESS]          = {NULL,     binary, PREC_NONE},
-    [TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_NONE},
+    [TOKEN_EQUAL_EQUAL]   = {NULL,     binary, PREC_EQUALITY},
+    [TOKEN_GREATER]       = {NULL,     binary, PREC_COMPARISON},
+    [TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON},
+    [TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON},
+    [TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON},
     [TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE},
-    [TOKEN_STRING]        = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
     [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
     [TOKEN_AND]           = {NULL,     NULL,   PREC_NONE},
     [TOKEN_CLASS]         = {NULL,     NULL,   PREC_NONE},
@@ -292,7 +297,7 @@ bool compile(const char* source, Chunk* chunk) {
     parser.panicMode = false;
 
     advance();
-    expression(); // Latuh
+    expression(); 
     consume(TOKEN_EOF, "Expect end of expression"); // Expect end of file
     endCompiler(); // Adds OP_RETURN to the end of the chunk
     return !parser.hadError; // Returns whether or not compilation suceeded (false if theres an error)
