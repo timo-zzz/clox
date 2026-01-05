@@ -11,6 +11,7 @@ typedef struct {
     uint8_t* ip; // Instruction Pointer
     Value stack[STACK_MAX];
     Value* stackTop; // Always points to the element after the element last pushed onto the stack
+    Obj* objects;
 } VM;
 
 typedef enum {
@@ -18,6 +19,8 @@ typedef enum {
     INTERPRET_COMPILE_ERROR,
     INTERPRET_RUNTIME_ERROR
 } InterpretResult;
+
+extern VM vm;
 
 void initVM();
 void freeVM();

@@ -186,12 +186,14 @@ static void grouping() {
     // Doesn't emit any bytecode because a grouping expression just changes precedence.
 }
 
+// Wraps a number into a Value
 static void number() {
     // Assume the token has already been consumed (use the previous token)
     double value = strtod(parser.previous.start, NULL);
     emitConstant(NUMBER_VAL(value));
 }
 
+// Creates a String Obj, then wraps it in a Value
 static void string() {
     // +1 and -2 trim quotation marks
     emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2)));
