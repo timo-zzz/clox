@@ -25,6 +25,7 @@ struct ObjString {
     Obj obj; 
     int length;
     char* chars; // Stored on heap
+    uint32_t hash; // We cache (store it in the string) a string's hash so we don't have to re-calculate the hash everytime we look for a key.
 }; // No typedef because it was forward declared in value.h
 
 ObjString* takeString(char* chars, int length);
