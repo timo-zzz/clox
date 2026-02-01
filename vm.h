@@ -2,6 +2,7 @@
 #define clox_vm_h
 
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 
 #define STACK_MAX 256
@@ -11,6 +12,7 @@ typedef struct {
     uint8_t* ip; // Instruction Pointer
     Value stack[STACK_MAX];
     Value* stackTop; // Always points to the element after the element last pushed onto the stack
+    Table strings; // Interned strings
     Obj* objects;
 } VM;
 

@@ -3,6 +3,7 @@
 
 #include "memory.h"
 #include "object.h"
+#include "table.h"
 #include "value.h"
 #include "vm.h"
 
@@ -24,11 +25,12 @@ static ObjString* allocateString(char* chars, int length, uint32_t hash) {
     ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING); // If this is a ObjString constructor, ALLOCATE_OBJ is like the Obj superclass constructor.
     string->length = length;
     string->hash = hash;
+    tableSet(&vm.strings, string, NIL_VAL); // Intern the string
     string->chars = chars;
     return string;
 }
 
-static uint32_t hashString(char* chars, int length) {
+static uint32_t hashString(const char* key, int length) {
     uint32_t hash = 2166136261u;
     for (int i = 0; i < length; i++) {
         hash ^= (uint8_t)key[i];
@@ -39,12 +41,25 @@ static uint32_t hashString(char* chars, int length) {
 // Creates a ObjString from a string already allocated onto the heap.
 ObjString* takeString(char* chars, int length) {
     uint32_t hash = hashString(chars, length);
+
+    // If the same string already exists, return that
+    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    if (interned != NULL) {
+        FREE_ARRAY(char, chars, length + 1); // Free this string
+        return interned;
+    }
     return allocateString(chars, length, hash);
 }
 
 // Copies a string from our compiler's stack to the heap, then makes an ObjString from it.
 ObjString* copyString(const char* chars, int length) {
     uint32_t hash = hashString(chars, length);
+
+    // If the same string already exists, return that
+    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    if (interned != NULL) return interned;
+
+    // Allocate the string
     char* heapChars = ALLOCATE(char, length + 1); // Allocate a char array of length + 1 on the heap
     memcpy(heapChars, chars, length);
     heapChars[length] = '\0'; // String terminator character, since the parser string is one long, unterminated one
