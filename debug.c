@@ -7,7 +7,7 @@ void disassembleChunk(Chunk* chunk, const char* name) {
     printf("== %s ==\n", name);
 
     for (int offset = 0; offset < chunk->count;) {
-        offset = disassembleInstruction(chunk, offset); // Increments offset for us
+        offset = disassembleInstruction(chunk, offset); // Increments offset for us so we dont have to in the loop
     }
 }
 
@@ -60,6 +60,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_NOT", offset);
         case OP_NEGATE:
             return simpleInstruction("OP_NEGATE", offset);
+        case OP_PRINT:
+            return simpleInstruction("OP_PRINT", offset);
         case OP_RETURN:
             return simpleInstruction("OP_RETURN", offset);
         default:

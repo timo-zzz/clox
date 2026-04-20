@@ -102,6 +102,18 @@ static void consume(TokenType type, const char* message) {
     errorAtCurrent(message);
 }
 
+// Checks if the current token in the parser is a given type.
+static bool check(TokenType type) {
+    return parser.current.type == type;
+}
+
+// Advances if the current token is a given type. Returns true/false if it was the given type
+static bool match(TokenType type) {
+    if (!check(type)) return false;
+    advance();
+    return true;
+}
+
 // Add a byte (opcode or operand) to the chunk. The previous token's line info is sent so that runtime errors are associated with that line.
 static void emitByte(uint8_t byte) {
     writeChunk(currentChunk(), byte, parser.previous.line);
@@ -144,6 +156,8 @@ static void endCompiler() {
 
 // Forward declarations for use in grammar production methods
 static void expression();
+static void statement();
+static void declaration();
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 
@@ -289,6 +303,27 @@ static void expression() {
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+static void printStatement() {
+    // Evaluate the expression & put it on the stack so that it can be popped & printed
+    expression();
+
+    // Check for a semicolon & consume it
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+    
+    // Emit the instruction to the current chunk.
+    emitByte(OP_PRINT);
+}
+
+static void declaration() {
+    statement();
+}
+
+static void statement() {
+    if (match(TOKEN_PRINT)) {
+        printStatement();
+    }
+}
+
 bool compile(const char* source, Chunk* chunk) {
     // Initilization
     initScanner(source);
@@ -299,8 +334,11 @@ bool compile(const char* source, Chunk* chunk) {
     parser.panicMode = false;
 
     advance();
-    expression(); 
-    consume(TOKEN_EOF, "Expect end of expression"); // Expect end of file
+
+    while (!match(TOKEN_EOF)) {
+        declaration();
+    }
+
     endCompiler(); // Adds OP_RETURN to the end of the chunk
     return !parser.hadError; // Returns whether or not compilation suceeded (false if theres an error)
 }
