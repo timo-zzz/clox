@@ -12,6 +12,7 @@ typedef struct {
     uint8_t* ip; // Instruction Pointer
     Value stack[STACK_MAX];
     Value* stackTop; // Always points to the element after the element last pushed onto the stack
+    Table globals; // Global variables
     Table strings; // Interned strings
     Obj* objects;
 } VM;

@@ -32,7 +32,7 @@ typedef enum {
 } Precedence;
 
 // Parsing function pointer type
-typedef void (*ParseFn)();
+typedef void (*ParseFn)(bool canAssign);
 
 typedef struct {
     ParseFn prefix;        // The function to compile the prefix expression this token is used for
@@ -160,9 +160,10 @@ static void statement();
 static void declaration();
 static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
+static uint8_t identifierConstant(Token* name);
 
 // Compiles the right operand, then emits the operation opcode
-static void binary() {
+static void binary(bool canAssign) {
     // Handles operation precedence, so we can use 1 function for all binary operations
     TokenType operatorType = parser.previous.type;
     ParseRule* rule = getRule(operatorType);
@@ -182,7 +183,7 @@ static void binary() {
     }
 }
 
-static void literal() {
+static void literal(bool canAssign) {
     // Keyword token has already been consumed
     switch (parser.previous.type) {
         case TOKEN_FALSE: emitByte(OP_FALSE); break;
@@ -192,7 +193,7 @@ static void literal() {
     }
 }
 
-static void grouping() {
+static void grouping(bool canAssign) {
     expression();
     // Assumes the token has already been consumed
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression.");
@@ -201,19 +202,37 @@ static void grouping() {
 }
 
 // Wraps a number into a Value
-static void number() {
+static void number(bool canAssign) {
     // Assume the token has already been consumed (use the previous token)
     double value = strtod(parser.previous.start, NULL);
     emitConstant(NUMBER_VAL(value));
 }
 
 // Creates a String Obj, then wraps it in a Value
-static void string() {
+static void string(bool canAssign) {
     // +1 and -2 trim quotation marks
     emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2)));
 }
 
-static void unary() {
+static void namedVariable(Token name, bool canAssign) {
+    // "Add" the variable's name to the constant table (but really get its index since its an interned string (if it exists ofc))
+    uint8_t arg = identifierConstant(&name);
+
+    if (canAssign && match(TOKEN_EQUAL)) {
+        // Check if an expression is an identifier being assigned a value
+        expression();
+        emitBytes(OP_SET_GLOBAL, arg);
+    } else {
+        // Emit the instructions to access variable
+        emitBytes(OP_GET_GLOBAL, arg);
+    }
+}
+
+static void variable(bool canAssign) {
+    namedVariable(parser.previous, canAssign);
+}
+
+static void unary(bool canAssign) {
     // Assume the token has already been consumed (use the previous token)
     TokenType operatorType = parser.previous.type;
 
@@ -251,7 +270,7 @@ ParseRule rules[] = {
     [TOKEN_GREATER_EQUAL] = {NULL,     binary, PREC_COMPARISON},
     [TOKEN_LESS]          = {NULL,     binary, PREC_COMPARISON},
     [TOKEN_LESS_EQUAL]    = {NULL,     binary, PREC_COMPARISON},
-    [TOKEN_IDENTIFIER]    = {NULL,     NULL,   PREC_NONE},
+    [TOKEN_IDENTIFIER]    = {variable, NULL,   PREC_NONE},
     [TOKEN_STRING]        = {string,   NULL,   PREC_NONE},
     [TOKEN_NUMBER]        = {number,   NULL,   PREC_NONE},
     [TOKEN_AND]           = {NULL,     NULL,   PREC_NONE},
@@ -284,14 +303,36 @@ static void parsePrecedence(Precedence precedence) {
         return;
     }
 
-    prefixRule();
+    // Check if we can do assignment (will be false if nested in a higher-precedence expression)
+    bool canAssign = precedence <= PREC_ASSIGNMENT;
+    prefixRule(canAssign);
 
     // Parse infix expressions (if precedence parameter permits)
     while (precedence <= getRule(parser.current.type)->precedence) {
         advance();
         ParseFn infixRule = getRule(parser.previous.type)->infix;
-        infixRule();
+        infixRule(canAssign);
     }
+
+    // If we have a leftover/unconsumed '=' token (from failed assignment due to precedence), throw an error
+    if (canAssign && match(TOKEN_EQUAL)) {
+        error("Invalid assignment target.");
+    }
+}
+
+// Takes an identifier token's lexeme then adds it to the chunk's constant table as a string, then returns the index of that constant in the table.
+static uint8_t identifierConstant(Token* name) {
+    return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
+}
+
+static uint8_t parseVariable(const char* errorMessage) {
+    consume(TOKEN_IDENTIFIER, errorMessage);
+    return identifierConstant(&parser.previous);
+}
+
+// Defines a global variable by emitting its opcode and the index of the variable name onto the stack
+static void defineVariable(uint8_t global) {
+    emitBytes(OP_DEFINE_GLOBAL, global);
 }
 
 // Look up a ParseRule using a TokenType. This is necessary because binary() recursively accesses the table (which stores binary in a rule)
@@ -303,6 +344,36 @@ static void expression() {
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+// Declares a variable
+static void varDeclaration() {
+    // Put the variable's name in the constant table & store its index
+    uint8_t global = parseVariable("Expect variable name.");
+
+    if (match(TOKEN_EQUAL)) {
+        // If we find an equals sign after the variable name, evaluate the expression being assigned to the variable name
+        expression();
+    } else {
+        // Assign nil as default value
+        emitByte(OP_NIL);
+    }
+    consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+
+    defineVariable(global);
+}
+
+// Evaluate an expression statement (i.e. a function call) (usually needs a side effect to do something)
+static void expressionStatement() {
+    // Evaluate the expression & put it on the stack
+    expression();
+
+    // Check for a semicolon & consume it
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+
+    // Emit the instruction to pop the expression's value off the stack
+    emitByte(OP_POP);
+}
+
+// Evaluate a print statement 
 static void printStatement() {
     // Evaluate the expression & put it on the stack so that it can be popped & printed
     expression();
@@ -310,17 +381,52 @@ static void printStatement() {
     // Check for a semicolon & consume it
     consume(TOKEN_SEMICOLON, "Expect ';' after value.");
     
-    // Emit the instruction to the current chunk.
+    // Emit the print instruction to the current chunk.
     emitByte(OP_PRINT);
 }
 
+// Synchronize errors
+static void synchronize() {
+    parser.panicMode = false;
+
+    while (parser.current.type != TOKEN_EOF) {
+        // Exit panic mode at a statement boundary
+        if (parser.previous.type == TOKEN_SEMICOLON) return;
+        switch (parser.current.type) {
+            case TOKEN_CLASS:
+            case TOKEN_FUN:
+            case TOKEN_VAR:
+            case TOKEN_FOR:
+            case TOKEN_IF:
+            case TOKEN_WHILE:
+            case TOKEN_PRINT:
+            case TOKEN_RETURN:
+                return;
+
+            default:
+                ; // Do nothing, or rather...
+        }
+
+        // ...advance! Until we hit a statement boundary
+        advance();
+    }
+}
+
 static void declaration() {
-    statement();
+    if (match(TOKEN_VAR)) {
+        varDeclaration();
+    } else {
+        statement();
+    }
+
+    if (parser.panicMode) synchronize();
 }
 
 static void statement() {
     if (match(TOKEN_PRINT)) {
         printStatement();
+    } else {
+        expressionStatement();
     }
 }
 

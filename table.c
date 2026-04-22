@@ -93,7 +93,7 @@ static void adjustCapacity(Table* table, int capacity) {
     table->capacity = capacity;
 }
 
-// Adds a key-value pair to the table
+// Adds a key-value pair to the table. Returns if a key is new or not.
 bool tableSet(Table* table, ObjString* key, Value value) {
     // Grow when array is 75% full
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) { 

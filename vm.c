@@ -32,10 +32,13 @@ static void runtimeError(const char* format, ...) {
 void initVM() {
     resetStack();
     vm.objects = NULL;
+
+    initTable(&vm.globals); // Global variable table
     initTable(&vm.strings); // Interned string table
 }
 
 void freeVM() {
+    freeTable(&vm.globals);
     freeTable(&vm.strings); 
     freeObjects();
 }
@@ -84,7 +87,8 @@ static void concatenate() {
 
 static InterpretResult run() {
 #define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code.
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // The bytecode array stores the index of a Value in the constant pool.
+#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
+#define READ_STRING() AS_STRING(READ_CONSTANT()) // Reads a one byte operand (the idx of the string) and returns the string at that index.
 #define BINARY_OP(valueType, op) \
     do { \
         /* Binary operations are pushed onto the stack in this order: operator, left operand, right operand */ \
@@ -117,6 +121,43 @@ static InterpretResult run() {
             case OP_NIL: push(NIL_VAL); break;
             case OP_TRUE: push(BOOL_VAL(true)); break;
             case OP_FALSE: push(BOOL_VAL(false)); break;
+            case OP_POP: pop(); break;
+            case OP_GET_GLOBAL: {
+                // Get the string at that index (next instruction)
+                ObjString* name = READ_STRING();
+                Value value;
+
+                // Value is output param
+                if (!tableGet(&vm.globals, name, &value)) {
+                    // If the key does not exist, the string isn't defined, so throw an error.
+                    runtimeError("Undefined variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                // Push the value onto the stack (once again, output param)
+                push(value);
+                break;
+            }
+            case OP_DEFINE_GLOBAL: {
+                // Get the string at that index (next instruction)          
+                ObjString* name = READ_STRING();
+                tableSet(&vm.globals, name, peek(0));
+                // We wait to pop incase garbage collection is triggered while adding the value to the table
+                pop();
+                break;
+            }
+            case OP_SET_GLOBAL: {
+                // Get the string at that index (next instruction)
+                ObjString* name = READ_STRING();
+
+                if (tableSet(&vm.globals, name, peek(0))) { // Re-assigns/sets an existing variable's value (function has a side effect)
+                    // If key added is new (undefined variable) thrown an error
+                    tableDelete(&vm.globals, name);
+                    runtimeError("Undefined variable '%s'.", name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_EQUAL: {
                 Value b = pop();
                 Value a = pop();
@@ -170,6 +211,7 @@ static InterpretResult run() {
 
 #undef READ_BYTE
 #undef READ_CONSTANT
+#undef READ_STRING
 #undef BINARY_OP
 }
 
