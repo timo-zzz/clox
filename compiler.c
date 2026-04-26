@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "common.h"
 #include "compiler.h"
@@ -181,6 +182,12 @@ static void beginScope() {
 
 static void endScope() {
     current->scopeDepth--;
+
+    // Pop local variables after exiting a scope. localCount > 0 ensures everything gets popped in an outermost scope (its an AND so it doesnt apply outside outermost scopes)
+    while (current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth) {
+        emitByte(OP_POP);
+        current->localCount--;
+    }
 }
 
 // Forward declarations for use in grammar production methods
@@ -243,17 +250,29 @@ static void string(bool canAssign) {
     emitConstant(OBJ_VAL(copyString(parser.previous.start + 1, parser.previous.length - 2)));
 }
 
+// Used to set & get variables
 static void namedVariable(Token name, bool canAssign) {
-    // "Add" the variable's name to the constant table (but really get its index since its an interned string (if it exists ofc))
-    uint8_t arg = identifierConstant(&name);
+    uint8_t getOp, setOp;
+    int arg = resolveLocal(current, &name); // Needs to be a signed int since -1 represents global scope
+
+    // Assign correct instructions for local and global variables respectively
+    if (arg != -1) {
+        getOp = OP_GET_LOCAL;
+        setOp = OP_SET_LOCAL;
+    } else {
+        // "Add" the variable's name to the constant table (but really get its index since its an interned string (if it exists ofc))
+        arg = identifierConstant(&name);
+        getOp = OP_GET_GLOBAL;
+        setOp = OP_SET_GLOBAL;
+    }
 
     if (canAssign && match(TOKEN_EQUAL)) {
         // Check if an expression is an identifier being assigned a value
         expression();
-        emitBytes(OP_SET_GLOBAL, arg);
+        emitBytes(setOp, (uint8_t)arg); // Cast back to unsigned int
     } else {
         // Emit the instructions to access variable
-        emitBytes(OP_GET_GLOBAL, arg);
+        emitBytes(OP_GET_GLOBAL, (uint8_t)arg); // Cast back to unsigned int
     }
 }
 
@@ -354,6 +373,71 @@ static uint8_t identifierConstant(Token* name) {
     return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
 }
 
+// Checks if two identifiers are the same
+static bool identifiersEqual(Token* a, Token* b) {
+    if (a->length != b->length) return false;
+    return memcmp(a->start, b->start, a->length) == 0;
+}
+
+// Tries to resolve an existing local variable
+static int resolveLocal(Compiler* compiler, Token* name) {
+    // Loop through the local variable array. Traverses backwards because new local variables are appended to the end (like a stack!)
+    for (int i = compiler->localCount - 1; i >= 0; i--) {
+        Local* local = &compiler->locals[i];
+
+        // Check if theres a local variable with name
+        if (identifiersEqual(name, &local->name)) {
+            if (local->depth == -1) {
+                error("Can't read local variable in its own initializer.");
+            }
+            // If so, return its index.
+            return i;
+        }
+    }
+
+    // If we never found it, its a global variable.
+    return -1;
+}
+
+// Adds a new local variable to the array
+static void addLocal(Token name) {
+    // Don't allow adding if # of locals is at liit
+    if (current->localCount == UINT8_COUNT) {
+        error("Too many local variables in function.");
+        return;
+    }
+
+    // Increment the amount of locals, then access the array of local variables using the amount of locals as the idx
+    Local* local = &current->locals[current->localCount++];
+
+    // Store the local
+    local->name = name;
+    local->depth = -1; // Represents an uninitialized state to prevent a variable from setting it to itself (e.x. var a = a;)
+}
+
+// Used to declare local variables
+static void declareVariable() {
+    // If its a global variable, exit.
+    if (current->scopeDepth == 0) return;
+
+    Token* name = &parser.previous;
+
+    // Check if theres already a local variable in scope with the same name. Traverses backwards because new local variables are appended to the end (like a stack!)
+    for (int i = current->localCount - 1; i >= 0; i--) {
+        Local* local = &current->locals[i];
+        // Stop the check if we've went outside the current scope 
+        if (local->depth != -1 && local->depth < current->scopeDepth) {
+            break;
+        }
+
+        // If so, report an error.
+        if (identifiersEqual(name, &local->name)) {
+            error("Already a variable with this name in this scope.");
+        }
+    }
+    addLocal(*name);
+}
+
 // Parses a variable and returns the index of where it was placed in the chunk's constant table.
 static uint8_t parseVariable(const char* errorMessage) {
     consume(TOKEN_IDENTIFIER, errorMessage);
@@ -367,9 +451,16 @@ static uint8_t parseVariable(const char* errorMessage) {
     return identifierConstant(&parser.previous);
 }
 
+// Marks the last local declared as initialized
+static void markInitialized() {
+    current->locals[current->localCount - 1].depth = current->scopeDepth;
+}
+
 // Defines a global variable by emitting its opcode and the index of the variable name onto the stack
 static void defineVariable(uint8_t global) {
+    // If it isn't a global variable, we don't need to do anything at runtime. The temporary data on the stack is the local variable itself.
     if (current->scopeDepth > 0) {
+        markInitialized();
         return;
     }
 

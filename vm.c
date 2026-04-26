@@ -86,7 +86,7 @@ static void concatenate() {
 }
 
 static InterpretResult run() {
-#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code.
+#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code. This then dereferences it.
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
 #define READ_STRING() AS_STRING(READ_CONSTANT()) // Reads a one byte operand (the idx of the string) and returns the string at that index.
 #define BINARY_OP(valueType, op) \
@@ -122,6 +122,17 @@ static InterpretResult run() {
             case OP_TRUE: push(BOOL_VAL(true)); break;
             case OP_FALSE: push(BOOL_VAL(false)); break;
             case OP_POP: pop(); break;
+            case OP_GET_LOCAL: {
+                // Push a local variable's value onto the stack
+                uint8_t slot = READ_BYTE(); // Should be the stack slot where the local is
+                push(vm.stack[slot]);
+                break;
+            }
+            case OP_SET_LOCAL: {
+                uint8_t slot = READ_BYTE(); // Should be the stack slot where the local is
+                vm.stack[slot] = peek(0);
+                break;
+            }
             case OP_GET_GLOBAL: {
                 // Get the string at that index (next instruction)
                 ObjString* name = READ_STRING();

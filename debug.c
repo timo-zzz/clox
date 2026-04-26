@@ -11,6 +11,7 @@ void disassembleChunk(Chunk* chunk, const char* name) {
     }
 }
 
+// Disassembles a constant instruction
 static int constantInstruction(const char* name, Chunk* chunk, int offset) {
     uint8_t constant = chunk->code[offset + 1]; // Index of constant
     printf("%-16s %4d '", name, constant); // Print index of constant and the constant
@@ -19,9 +20,17 @@ static int constantInstruction(const char* name, Chunk* chunk, int offset) {
     return offset + 2; // OP_CONSTANT is 2 bytes (one for the opcode and one for the operand), hence why we increment by 2.
 }
 
+// Disassembles a simple instruction
 static int simpleInstruction(const char* name, int offset) {
     printf("%s\n", name);
     return offset + 1;
+}
+
+// Disassembles a byte instruction (used for local variables). The name never leaves the compiler, so we can only display the stack slot.
+static int byteInstruction(const char* name, Chunk* chunk, int offset) {
+    uint8_t slot = chunk->code[offset + 1]; // Index of slot
+    printf("%-16s %4d\n", name, slot);
+    return offset + 2; // 2 bytes (one for the opcode and one for the operand), hence why we increment by 2.
 }
 
 int disassembleInstruction(Chunk* chunk, int offset) {
@@ -44,6 +53,10 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_FALSE", offset);
         case OP_POP:
             return simpleInstruction("OP_POP", offset);
+        case OP_GET_LOCAL: 
+            return byteInstruction("OP_GET_LOCAL", chunk, offset);
+        case OP_SET_LOCAL:
+            return byteInstruction("OP_SET_LOCAL", chunk, offset);
         case OP_GET_GLOBAL:
             return constantInstruction("OP_GET_GLOBAL", chunk, offset);
         case OP_DEFINE_GLOBAL:
