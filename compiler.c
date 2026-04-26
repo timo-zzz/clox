@@ -34,13 +34,28 @@ typedef enum {
 // Parsing function pointer type
 typedef void (*ParseFn)(bool canAssign);
 
+// Represents a row in the parser table (see line 178).
 typedef struct {
     ParseFn prefix;        // The function to compile the prefix expression this token is used for
     ParseFn infix;         // The function to compile the infix expression this token is used for
     Precedence precedence; // The precedence of the infix expression when using this token as an operator
-} ParseRule; // Represents a row in the parser table (see line 178)
+} ParseRule; 
+
+// Represents a local variable.
+typedef struct {
+    Token name; // Variable's name
+    int depth;  // The number of blocks/closures surrounding this variable
+} Local;
+
+// Used to track the state of all local variables.
+typedef struct {
+    Local locals[UINT8_COUNT]; // Array of all locals in every part of the compilation process. Ordered in the order they appear in code
+    int localCount;            // How many locals are in scope (how many array slots are in use)
+    int scopeDepth;            // The number of blocks/closures surrounding the code we're currently compiling
+} Compiler;
 
 Parser parser;
+Compiler* current = NULL; // hi
 Chunk* compilingChunk;
 
 // For user-defined function, the "current chunk" becomes a bit more nuanced. So, this will hold that logic.
@@ -145,6 +160,12 @@ static void emitConstant(Value value) {
     emitBytes(OP_CONSTANT, makeConstant(value));
 }
 
+static void initCompiler(Compiler* compiler) {
+    compiler->localCount = 0;
+    compiler->scopeDepth = 0;
+    current = compiler;
+}
+
 static void endCompiler() {
     emitReturn();
 #ifdef DEBUG_PRINT_CODE
@@ -152,6 +173,14 @@ static void endCompiler() {
         disassembleChunk(currentChunk(), "code");
     }
 #endif
+}
+
+static void beginScope() {
+    current->scopeDepth++;
+}
+
+static void endScope() {
+    current->scopeDepth--;
 }
 
 // Forward declarations for use in grammar production methods
@@ -325,13 +354,25 @@ static uint8_t identifierConstant(Token* name) {
     return makeConstant(OBJ_VAL(copyString(name->start, name->length)));
 }
 
+// Parses a variable and returns the index of where it was placed in the chunk's constant table.
 static uint8_t parseVariable(const char* errorMessage) {
     consume(TOKEN_IDENTIFIER, errorMessage);
+
+    // how much wood would a woodchuck chuck if a woodchuck could chuck wood
+    declareVariable();
+    // Since local variables are handled entirely at compile time, we don't need to put an index in the table to look up at runtime.
+    // So, we just exit the function instead.
+    if (current->scopeDepth > 0) return 0;
+
     return identifierConstant(&parser.previous);
 }
 
 // Defines a global variable by emitting its opcode and the index of the variable name onto the stack
 static void defineVariable(uint8_t global) {
+    if (current->scopeDepth > 0) {
+        return;
+    }
+
     emitBytes(OP_DEFINE_GLOBAL, global);
 }
 
@@ -342,6 +383,15 @@ static ParseRule* getRule(TokenType type) {
 
 static void expression() {
     parsePrecedence(PREC_ASSIGNMENT);
+}
+
+static void block() {
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        declaration();
+    }
+
+    // If the program hits EOF and theres no closing curly, error (so we don't get stuck in a loop)
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 }
 
 // Declares a variable
@@ -425,6 +475,10 @@ static void declaration() {
 static void statement() {
     if (match(TOKEN_PRINT)) {
         printStatement();
+    }  else if (match(TOKEN_LEFT_BRACE)) {
+        beginScope();
+        block();
+        endScope();
     } else {
         expressionStatement();
     }
@@ -433,6 +487,8 @@ static void statement() {
 bool compile(const char* source, Chunk* chunk) {
     // Initilization
     initScanner(source);
+    Compiler compiler;
+    initCompiler(&compiler);
     compilingChunk = chunk;
 
 
