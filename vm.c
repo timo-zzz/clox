@@ -86,8 +86,10 @@ static void concatenate() {
 }
 
 static InterpretResult run() {
-#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code. This then dereferences it.
+#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code. This then dereferences it (reads a byte).
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
+#define READ_SHORT() \
+    (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1])) // Reads a short (16-bit) number from the stack
 #define READ_STRING() AS_STRING(READ_CONSTANT()) // Reads a one byte operand (the idx of the string) and returns the string at that index.
 #define BINARY_OP(valueType, op) \
     do { \
@@ -211,6 +213,23 @@ static InterpretResult run() {
             case OP_PRINT: {
                 printValue(pop());
                 printf("\n");
+                break;
+            }
+            case OP_JUMP: {
+                uint16_t offset = READ_SHORT();
+                vm.ip += offset;
+                break;
+            }
+            case OP_JUMP_IF_FALSE: {
+                // Read offset operand
+                uint16_t offset = READ_SHORT();
+                // Jump if value is false
+                if (isFalsey(peek(0))) vm.ip += offset;
+                break;
+            }
+            case OP_LOOP: {
+                uint16_t offset = READ_SHORT();
+                vm.ip -= offset;
                 break;
             }
             case OP_RETURN: {
