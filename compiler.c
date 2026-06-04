@@ -232,6 +232,8 @@ static ParseRule* getRule(TokenType type);
 static void parsePrecedence(Precedence precedence);
 static uint8_t identifierConstant(Token* name);
 
+static int resolveLocal(Compiler* compiler, Token* name);
+
 // Compiles the right operand, then emits the operation opcode
 static void binary(bool canAssign) {
     // Handles operation precedence, so we can use 1 function for all binary operations
@@ -341,6 +343,21 @@ static void unary(bool canAssign) {
         default: return; // Unreachable
     }
 }
+ 
+
+static void and_(bool canAssign) {
+    // Short circuit jump (and short circuits if first expression is false)
+    int endJump = emitJump(OP_JUMP_IF_FALSE);
+
+    // Pop condition expression
+    emitByte(OP_POP);
+    // Parse the 'and' expression
+    parsePrecedence(PREC_AND);
+
+    // Patch the jump
+    patchJump(endJump);
+}
+
 /*
   Each expression has a corresponding TokenType. Since enums are just numbers, each TokenType enum is an index in this table of function pointers.
   This information is stored in a ParseRule struct. So, using a token type, we can easily look up its compiling function.
@@ -512,19 +529,6 @@ static void defineVariable(uint8_t global) {
     }
 
     emitBytes(OP_DEFINE_GLOBAL, global);
-}
-
-static void and_(bool canAssign) {
-    // Short circuit jump (and short circuits if first expression is false)
-    int endJump = emitJump(OP_JUMP_IF_FALSE);
-
-    // Pop condition expression
-    emitByte(OP_POP);
-    // Parse the 'and' expression
-    parsePrecedence(PREC_AND);
-
-    // Patch the jump
-    patchJump(endJump);
 }
 
 // Look up a ParseRule using a TokenType. This is necessary because binary() recursively accesses the table (which stores binary in a rule)
