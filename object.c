@@ -7,6 +7,7 @@
 #include "value.h"
 #include "vm.h"
 
+// Macro for allocating objects on the heap without needing to cast Obj*
 #define ALLOCATE_OBJ(type, objectType) \
     (type*)allocateObject(sizeof(type), objectType)
 
@@ -18,6 +19,15 @@ static Obj* allocateObject(size_t size, ObjType type) {
     object->next = vm.objects;
     vm.objects = object;
     return object;
+}
+
+// Initializes a new, empty function. Like a default constructor for the function object.
+ObjFunction* newFunction() {
+    ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+    function->arity = 0; // Number of parameters the function has
+    function->name = NULL;
+    initChunk(&function->chunk); // Initialize the chunk that will hold the function's code
+    return function;
 }
 
 // Creates an ObjString on the heap, then intializes its fields (like a constructor!).
@@ -66,10 +76,17 @@ ObjString* copyString(const char* chars, int length) {
     return allocateString(heapChars, length, hash);
 }
 
+static void printFunction(ObjFunction* function) {
+    printf("<fn %s>", function->name->chars);
+}
+
 void printObject(Value value) {
     switch (OBJ_TYPE(value)) {
         case OBJ_STRING:
             printf("%s", AS_CSTRING(value));
+            break;
+        case OBJ_FUNCTION: // Since Lox functions are first class (objects), and all Lox objects are printable, functions are printable!
+            printFunction(AS_FUNCTION(value));
             break;
     }
 }

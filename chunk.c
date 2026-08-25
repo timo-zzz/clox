@@ -8,7 +8,7 @@ void initChunk(Chunk* chunk) {
     chunk->capacity = 0;
     chunk->code = NULL;
     chunk->lines = NULL;
-    initValueArray(&chunk->constants);
+    initValueArray(&chunk->constants); // Initialize the chunk's constant pool
 }
 
 void freeChunk(Chunk* chunk) {

@@ -3,6 +3,7 @@
 
 #include "common.h"
 
+// Forward declare Obj types so that we don't need to include "object.h", which would make this header unnecessarily big.
 typedef struct Obj Obj; 
 typedef struct ObjString ObjString;
 
@@ -18,7 +19,7 @@ typedef struct {
     union {
         bool boolean;
         double number;
-        Obj* obj; // Pointer to heap
+        Obj* obj; // Pointer to heap. Also can't NOT be a pointer, because the size of Obj is unknown. However, the compiler always knows the size of pointers.
     } as;
 } Value; // Represents a Lox value
 
