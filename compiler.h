@@ -4,6 +4,5 @@
 #include "object.h"
 #include "vm.h"
 
-bool compile(const char* source, Chunk* chunk); // Returns whether or not compilation suceeded
-
+ObjFunction* compile(const char* source); // Returns the function the VM will run.
 #endif

@@ -76,7 +76,14 @@ ObjString* copyString(const char* chars, int length) {
     return allocateString(heapChars, length, hash);
 }
 
+// Print's a functions name
 static void printFunction(ObjFunction* function) {
+    // The wrapper function around top-level/global code doesn't have a name. So, print a placeholder name.
+    if (function->name == NULL) {
+        printf("<script>");
+        return;
+    }
+
     printf("<fn %s>", function->name->chars);
 }
 

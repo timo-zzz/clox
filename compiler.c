@@ -48,9 +48,19 @@ typedef struct {
     int depth;  // The number of blocks/closures surrounding this variable
 } Local;
 
-// Used to track the state of all local variables.
+// Tells the compiler when it is compiling inside of a function or not (so top level code). See first comment in the Compiler struct.
+typedef enum {
+    TYPE_FUNCTION,
+    TYPE_SCRIPT // Did you know the comma at the end of the last enum type is optional? It doesn't make a difference. I just learned that. 
+} FunctionType;
+
+// Used to track the function the compiler is currently running and the state of all local variables.
 typedef struct {
-    Local locals[UINT8_COUNT]; // Array of all locals in every part of the compilation process. Ordered in the order they appear in code
+    // When we are not compiling to a chunk inside of a user-defined function (so in the global scope, or top level code), it is compiling to a "default" function. Our code is sort of wrapped in an implicit main function.
+    ObjFunction* function; // Tracks the function we are currently compiling to
+    FunctionType type;     // Tracks the type (top-level or real function) that we are currently compiling
+
+    Local locals[UINT8_COUNT]; // Array of all local variables in every part of the compilation process. Ordered in the order they appear in code
     int localCount;            // How many locals are in scope (how many array slots are in use)
     int scopeDepth;            // The number of blocks/closures surrounding the code we're currently compiling
 } Compiler;
@@ -59,9 +69,9 @@ Parser parser;
 Compiler* current = NULL; // hi
 Chunk* compilingChunk;
 
-// For user-defined function, the "current chunk" becomes a bit more nuanced. So, this will hold that logic.
+// For user-defined functions, the "current chunk" becomes a bit more nuanced. So, this will hold that logic.
 static Chunk* currentChunk() {
-    return compilingChunk;
+    return &current->function->chunk; // I just realized arrow operator has higher precedence than ampersand.
 }
 
 static void errorAt(Token* token, const char* message) {
@@ -195,19 +205,34 @@ static void patchJump(int offset) {
     currentChunk()->code[offset + 1] = jump & 0xff;
 }
 
-static void initCompiler(Compiler* compiler) {
+static void initCompiler(Compiler* compiler, FunctionType type) {
+    compiler->function = NULL;
+    compiler->type = type;
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
+    compiler->function = newFunction(); // We set it to null then initialize it a little bit later to prepare for our garbage collector later :)
     current = compiler;
+
+    // Compiler reserves the 1st local variable slot for its own use.
+    Local* local = &current->locals[current->localCount++];
+    local->depth = 0;
+    // Note that "name" is never actually initialized, we are just modifying its fields. So it is still NULL.
+    local->name.start = ""; // Empty name so that the user can't create an identifier that refers to it.
+    local->name.length = 0;
 }
 
-static void endCompiler() {
+static ObjFunction* endCompiler() {
     emitReturn();
+    ObjFunction* function = current->function;
+    // Dump disassembled bytecode for debugging
 #ifdef DEBUG_PRINT_CODE
     if (!parser.hadError) {  // Only dump chunk if there was no errors
-        disassembleChunk(currentChunk(), "code");
+        disassembleChunk(currentChunk(), function->name != NULL
+            ? function->name->chars : "<script>"); // Check if its an actual function, and dump its name accordingly. "<script>" is for if it is top-level/global code.
     }
 #endif
+
+    return function;
 }
 
 static void beginScope() {
@@ -748,13 +773,11 @@ static void statement() {
     }
 }
 
-bool compile(const char* source, Chunk* chunk) {
+ObjFunction* compile(const char* source) {
     // Initilization
     initScanner(source);
     Compiler compiler;
-    initCompiler(&compiler);
-    compilingChunk = chunk;
-
+    initCompiler(&compiler, TYPE_SCRIPT);
 
     parser.hadError = false;
     parser.panicMode = false;
@@ -765,6 +788,5 @@ bool compile(const char* source, Chunk* chunk) {
         declaration();
     }
 
-    endCompiler(); // Adds OP_RETURN to the end of the chunk
-    return !parser.hadError; // Returns whether or not compilation suceeded (false if theres an error)
-}
+    ObjFunction* function = endCompiler(); // endCompiler() adds OP_RETURN to the end of the chunk
+    return parser.hadError ? NULL : function; // Return the function the VM will run (return NULL if theres errors)
