@@ -790,3 +790,4 @@ ObjFunction* compile(const char* source) {
 
     ObjFunction* function = endCompiler(); // endCompiler() adds OP_RETURN to the end of the chunk
     return parser.hadError ? NULL : function; // Return the function the VM will run (return NULL if theres errors)
+}
