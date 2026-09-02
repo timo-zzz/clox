@@ -11,8 +11,10 @@
 
 VM vm;
 
+// Resets the stack. Wow! I would've never guessed!
 static void resetStack() {
-    vm.stackTop = vm.stack;
+    vm.stackTop = vm.stack; // Resets the stack to the beginning (moves where we are on the stack right now back to the start)
+    vm.frameCount = 0; // Reset the amount of frames 
 }
 
 static void runtimeError(const char* format, ...) {
@@ -22,9 +24,9 @@ static void runtimeError(const char* format, ...) {
     va_end(args);
     fputs("\n", stderr);
 
-    // Current instruction index minus 1, because interpreter advances past an instruction before execution
-    size_t instruction = vm.ip - vm.chunk->code - 1;
-    int line = vm.chunk->lines[instruction];
+    CallFrame* frame = &vm.frames[vm.frameCount - 1]; // Get the topmost function call frame
+    size_t instruction = frame->ip - frame->function->chunk.code - 1; // ip minus the start of the chunk (so where the ip started) gets us the # of how far the ip has advanced, therefore what index we are currently at in the chunk's bytecode array.
+    int line = frame->function->chunk.lines[instruction];
     fprintf(stderr, "[line %d] in script\n", line);
     resetStack();
 }
@@ -86,10 +88,18 @@ static void concatenate() {
 }
 
 static InterpretResult run() {
-#define READ_BYTE() (*vm.ip++) // The IP (instruction pointer) always points to the next byte of code. This then dereferences it (reads a byte).
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
+    // Get the address of first callframe (needs to be a pointer, otherwise C just stores a copy), which stores our IP and local variables. 
+    CallFrame* frame = &vm.frames[vm.frameCount - 1];
+
+// Reads one byte of bytecode from the stack. Remember, the IP is a pointer.
+#define READ_BYTE() (*frame->ip++) // The IP (instruction pointer) always points to the next byte of code. This then dereferences it (reads a byte).
+
 #define READ_SHORT() \
-    (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1])) // Reads a short (16-bit) number from the stack
+    (frame->ip += 2, \
+    (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1])) // Reads a short (16-bit) number from the stack
+
+#define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
+
 #define READ_STRING() AS_STRING(READ_CONSTANT()) // Reads a one byte operand (the idx of the string) and returns the string at that index.
 #define BINARY_OP(valueType, op) \
     do { \
@@ -111,7 +121,8 @@ static InterpretResult run() {
             printf(" ]");
         }
         printf("\n");
-        disassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code));
+        disassembleInstruction(&frame->function->chunk, 
+            (int)(frame->ip - frame->function->chunk.code));
 #endif
         uint8_t instruction;
         switch (instruction = READ_BYTE()) {
@@ -127,12 +138,12 @@ static InterpretResult run() {
             case OP_GET_LOCAL: {
                 // Push a local variable's value onto the stack
                 uint8_t slot = READ_BYTE(); // Should be the stack slot where the local is
-                push(vm.stack[slot]);
+                push(frame->slots[slot]);
                 break;
             }
             case OP_SET_LOCAL: {
                 uint8_t slot = READ_BYTE(); // Should be the stack slot where the local is
-                vm.stack[slot] = peek(0);
+                frame->slots[slot] = peek(0);
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -217,19 +228,19 @@ static InterpretResult run() {
             }
             case OP_JUMP: {
                 uint16_t offset = READ_SHORT();
-                vm.ip += offset;
+                frame->ip += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
                 // Read offset operand
                 uint16_t offset = READ_SHORT();
                 // Jump if value is false
-                if (isFalsey(peek(0))) vm.ip += offset;
+                if (isFalsey(peek(0))) frame->ip += offset;
                 break;
             }
             case OP_LOOP: {
                 uint16_t offset = READ_SHORT();
-                vm.ip -= offset;
+                frame->ip -= offset;
                 break;
             }
             case OP_RETURN: {
@@ -245,23 +256,21 @@ static InterpretResult run() {
 #undef BINARY_OP
 }
 
-// Prepare a chunk in the VM for execution
+// Takes source code and inteprets/runs it
 InterpretResult interpret(const char* source) {
-    Chunk chunk;
-    initChunk(&chunk);
+    // Compile our source code into bytecode.
+    ObjFunction* function = compile(source); 
+    if (function == NULL) return INTERPRET_COMPILE_ERROR; // Compiler will always return NULL if theres errors
 
-    if (!compile(source, &chunk)) { // If theres a compilation error
-        freeChunk(&chunk);
-        return INTERPRET_COMPILE_ERROR;
-    }
+    // Store the top-level, implicit main function on the stack
+    push(OBJ_VAL(function));
+    // Prepare the function's call frame so it can be executed
+    CallFrame* frame = &vm.frames[vm.frameCount++];
+    frame->function = function; 
+    frame->ip = function->chunk.code; // Set ip to the start of the function's bytecode array (which is also a (decayed) pointer! The ip just points to our current location during our traversal of that array).
+    frame->slots = vm.stack; // Set the call frame's frame/window to the bootom of the stack
 
-    vm.chunk = &chunk;
-    vm.ip = vm.chunk->code; // VM's instruction pointer now points to the newest instruction
-
-    InterpretResult result = run(); // Execute!
-
-    freeChunk(&chunk); // Free chunk after its done executing
-    return result;
+    return run();
 }
 
 
