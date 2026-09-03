@@ -55,7 +55,10 @@ typedef enum {
 } FunctionType;
 
 // Used to track the function the compiler is currently running and the state of all local variables.
-typedef struct {
+typedef struct Compiler {
+    // The Compiler that encloses this Compiler. Used when declaring functions, since each function is compiled by its own individual Compiler.
+    struct Compiler* enclosing;
+
     // When we are not compiling to a chunk inside of a user-defined function (so in the global scope, or top level code), it is compiling to a "default" function. Our code is sort of wrapped in an implicit main function.
     ObjFunction* function; // Tracks the function we are currently compiling to
     FunctionType type;     // Tracks the type (top-level or real function) that we are currently compiling
@@ -206,12 +209,18 @@ static void patchJump(int offset) {
 }
 
 static void initCompiler(Compiler* compiler, FunctionType type) {
+    compiler->enclosing = current; // Because we're changing our current compiler, we need to save the one we are using right now, so we can go back to using it.
     compiler->function = NULL;
     compiler->type = type;
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
     compiler->function = newFunction(); // We set it to null then initialize it a little bit later to prepare for our garbage collector later :)
     current = compiler;
+    // If we are not compiling the top-level function (so a real function), store its name.
+    if (type != TYPE_SCRIPT) {
+        current->function->name = copyString(parser.previous.start,
+                                            parser.previous.length);
+    }
 
     // Compiler reserves the 1st local variable slot for its own use.
     Local* local = &current->locals[current->localCount++];
@@ -232,6 +241,8 @@ static ObjFunction* endCompiler() {
     }
 #endif
 
+    // Set the current compiler back to the compiler we were using before, or its enclosing compiler. This is for when we are compiling functions, and we have essentially a linked list of compilers (a compiler inside another compiler that is compiling a function for that top compiler)
+    current = current->enclosing;
     return function;
 }
 
@@ -542,6 +553,7 @@ static uint8_t parseVariable(const char* errorMessage) {
 
 // Marks the last local declared as initialized
 static void markInitialized() {
+    if (current->scopeDepth == 0) return; // This is for when the top-level function calls this method. Since it's like an implicit main function, it can't and shouldnt call itself.
     current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
 
@@ -565,6 +577,7 @@ static void expression() {
     parsePrecedence(PREC_ASSIGNMENT);
 }
 
+// Compile a block
 static void block() {
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
         declaration();
@@ -572,6 +585,45 @@ static void block() {
 
     // If the program hits EOF and theres no closing curly, error (so we don't get stuck in a loop)
     consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
+}
+
+static void function(FunctionType type) {
+    // Remember that Compiler, at the top level, ultimately just compiles and returns an implicit main function. We can use this to compile local functions.
+    Compiler compiler;
+    initCompiler(&compiler, type); // Set our new compiler as our current compiler being used
+    beginScope();
+
+    // Parse all the tokens needed for a correct function delcaration.
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    if (!check(TOKEN_RIGHT_PAREN)) { // If a right parenthese isn't right after the left parenthese, we have parameters!
+        // Loops until all the parameters are parsed. If there's more parameters, we will have a comma at the end (at the end is key, that's why we need a do-while). If there isn't, we won't!
+        do {
+            current->function->arity++; // Arity is the number of parameters a function has
+            // Check if we're at the parameter limit
+            if (current->function->arity > 255) {
+                errorAtCurrent("Can't have more than 255 parameters");
+            }
+            
+            uint8_t constant = parseVariable("Expect parameter name");
+            defineVariable(constant); // Parameters are global variables within this nested Compiler's scope (since its scope is just this function).
+        } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+    block(); // Compile the function body. Includes the closing curly.
+
+    // Get the result of compilation. End the compiler we used (so we don't need to endScope())
+    ObjFunction* function = endCompiler(); 
+    // Put the function we compiled into the surrounding function's constant table.
+    emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function))); 
+}
+
+// Declares a function. Since functions are first-class, we just create a variable and store the function in there. It will become global or local depending on if it's in a block or not.
+static void funDeclaration() {
+    uint8_t global = parseVariable("Expect function name.");
+    markInitialized(); // Declare the function as initialized before we parse it, so it is allowed to call itself in its own body.
+    function(TYPE_FUNCTION);
+    defineVariable(global);
 }
 
 // Declares a variable
@@ -746,7 +798,10 @@ static void synchronize() {
 }
 
 static void declaration() {
-    if (match(TOKEN_VAR)) {
+    if (match(TOKEN_FUN)) {
+        funDeclaration();
+    }
+    else if (match(TOKEN_VAR)) {
         varDeclaration();
     } else {
         statement();
