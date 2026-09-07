@@ -7,15 +7,20 @@
 
 #define OBJ_TYPE(value)     (AS_OBJ(value)->type)
 
+// Keep the comments on the sides so each macro has its own comment that shows up when you hover over it :)
 #define IS_FUNCTION(value)  isObjType(value, OBJ_FUNCTION); /* Used to check if Objs are functions, for safe casting. */
+#define IS_NATIVE(value)    isObjType(value, OBJ_NATIVE) /* Used to check if Objs are native functions, for safe casting. */
 #define IS_STRING(value)    isObjType(value, OBJ_STRING) /* Used to check if Objs are strings, for safe casting. */
 
 #define AS_FUNCTION(value)  ((ObjFunction*)AS_OBJ(value)) /* Used to cast Objs to ObjFunctions, assuming it is safe. */
+#define AS_NATIVE(value) \
+    (((ObjNative*)AS_OBJ(value))->function) /* Used to get the corresponding C function pointer from a native function */
 #define AS_STRING(value)    ((ObjString*)AS_OBJ(value)) /* Used to cast Objs to ObjStrings, assuming it is safe. */
 #define AS_CSTRING(value)   (((ObjString*)AS_OBJ(value))->chars) /* Used to cast Objs/ObjStrings to a C string, assuming it is safe. */
 
 typedef enum {
     OBJ_FUNCTION,
+    OBJ_NATIVE,
     OBJ_STRING,
 } ObjType;
 
@@ -32,6 +37,15 @@ typedef struct {
     ObjString* name; // The function's name, represented as a Lox object.
 } ObjFunction; // Represents a Lox function object. Lox functions need to be object because functions are first class in Lox.
 
+// Function pointer wrapper for a native C function
+typedef Value (*NativeFn)(int argCount, Value* args);
+
+typedef struct {
+    // Having Obj as the first value allows ObjNative to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
+    Obj obj;
+    NativeFn function;
+} ObjNative; // Represents a native C function converted to a Lox function.
+
 struct ObjString {
     // Having Obj as the first value allows ObjString to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
     Obj obj; 
@@ -41,6 +55,7 @@ struct ObjString {
 }; // No typedef because it was forward declared in value.h
 
 ObjFunction* newFunction(); // Initializes a new function
+ObjNative* newNative(NativeFn function); // Initalizes a new native function
 ObjString* takeString(char* chars, int length);
 ObjString* copyString(const char* chars, int length);
 void printObject(Value value);

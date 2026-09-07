@@ -18,12 +18,6 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
 
 static void freeObject(Obj* object) {
     switch(object->type) {
-        case OBJ_STRING: {
-            ObjString* string = (ObjString*)object; // Cast the Obj argument to its real type
-            FREE_ARRAY(char, string->chars, string->length + 1); // The raw string was allocated on the heap too, so we must also free that.
-            FREE(ObjString, object);
-            break;
-        }
         case OBJ_FUNCTION: {
             ObjFunction* function = (ObjFunction*)object; // Cast the Obj argument to its real type
             freeChunk(&function->chunk); // Free the chunk holding all the function's code
@@ -31,6 +25,17 @@ static void freeObject(Obj* object) {
             FREE(ObjFunction, object);
             break;
         }
+        case OBJ_NATIVE: {
+            FREE(ObjNative, object); // ObjNative's members don't allocate any memory, thankfully
+            break;
+        }
+        case OBJ_STRING: {
+            ObjString* string = (ObjString*)object; // Cast the Obj argument to its real type
+            FREE_ARRAY(char, string->chars, string->length + 1); // The raw string was allocated on the heap too, so we must also free that.
+            FREE(ObjString, object);
+            break;
+        }
+        
     }
 }
 

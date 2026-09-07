@@ -30,6 +30,13 @@ ObjFunction* newFunction() {
     return function;
 }
 
+// Initializes a new Lox function that does the same thing as a native C function
+ObjNative* newNative(NativeFn function) {
+    ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+    native->function = function;
+    return native;
+}
+
 // Creates an ObjString on the heap, then intializes its fields (like a constructor!).
 static ObjString* allocateString(char* chars, int length, uint32_t hash) {
     ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING); // If this is a ObjString constructor, ALLOCATE_OBJ is like the Obj superclass constructor.
@@ -89,11 +96,14 @@ static void printFunction(ObjFunction* function) {
 
 void printObject(Value value) {
     switch (OBJ_TYPE(value)) {
-        case OBJ_STRING:
-            printf("%s", AS_CSTRING(value));
-            break;
         case OBJ_FUNCTION: // Since Lox functions are first class (objects), and all Lox objects are printable, functions are printable!
             printFunction(AS_FUNCTION(value));
+            break;
+        case OBJ_NATIVE:
+            printf("<native fn>");
+            break;
+        case OBJ_STRING:
+            printf("%s", AS_CSTRING(value));
             break;
     }
 }

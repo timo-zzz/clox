@@ -32,8 +32,8 @@ typedef enum {
     PREC_PRIMARY
 } Precedence;
 
-// Parsing function pointer type
-typedef void (*ParseFn)(bool canAssign);
+// The function pointer type for parsing rule functions. Look at function pointer syntax if you need to.
+typedef void (*ParseFn)(bool canAssign); // canAssign is useed in variable parsing functions so that it can tell if assignment to what its being assigned to is allowed.
 
 // Represents a row in the parser table (see line 178).
 typedef struct {
@@ -172,9 +172,10 @@ static int emitJump(uint8_t instruction) {
     return currentChunk()->count - 2;
 }
 
-// When clox is run, it parses, compiles, and executes an expression, then prints it result. So, we temporarily use return to do that.
+// Used for emitting return instructions when a function has no return value. The return instruction returns the topmost value on the stack.
 static void emitReturn() {
-    emitByte(OP_RETURN);
+    emitByte(OP_NIL); // Lox returns nil if theres no return value
+    emitByte(OP_RETURN); 
 }
 
 // Adds a value to the end of current chunk's constant table/pool, and then returns its index
@@ -291,6 +292,33 @@ static void binary(bool canAssign) {
     }
 }
 
+static uint8_t argumentList() {
+    uint8_t argCount = 0;
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        // Just parse through the arguments (which are expressions), and increment the count after each one is parsed.
+        do {
+            expression();
+            // argCount is only 1 byte, so we can only have 255 arguments max.
+            if (argCount == 255) {
+                error("Can't have more than 255 arguments.");
+            }
+            argCount++;
+        } while (match(TOKEN_COMMA)); // Every argument has a comma after it. If we don't find a comma, it's the end of the parameter list.
+    }
+
+    // Consume the right parenthese at the end of the argument list, and return.
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+    return argCount;
+}
+
+// Parsing function for compiling a function call. This is called after the function identifier is parsed and called from the left parenthese (
+static void call(bool canAssign) {
+    // Get how many arguments the function has
+    uint8_t argCount = argumentList();
+    // Emit an instruction to call the function with the argCount as an operand
+    emitBytes(OP_CALL, argCount);
+}
+
 static void literal(bool canAssign) {
     // Keyword token has already been consumed
     switch (parser.previous.type) {
@@ -399,7 +427,7 @@ static void and_(bool canAssign) {
   This information is stored in a ParseRule struct. So, using a token type, we can easily look up its compiling function.
 */
 ParseRule rules[] = {
-    [TOKEN_LEFT_PAREN]    = {grouping, NULL,   PREC_NONE},
+    [TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_NONE}, // Function calls are kind of like an infix expression, with ( being the operator.
     [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
     [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
@@ -749,6 +777,22 @@ static void printStatement() {
     emitByte(OP_PRINT);
 }
 
+// Evaluate a return statment
+static void returnStatement() {
+    // Prevents returning from top-level code (since it is technically a function in clox)
+    if (current->type == TYPE_SCRIPT) {
+        error("Can't return from top-level code.");
+    } 
+
+    if (match(TOKEN_SEMICOLON)) { // When there is no return value
+        emitReturn(); // Returns nil
+    } else { // When there is a return value
+        expression(); // Evaluate the return expression
+        consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+        emitByte(OP_RETURN); // The return instruction returns the topmost value on the stack.
+    }
+}
+
 static void whileStatement() {
     // Store where the loop starts
     int loopStart = currentChunk()->count;
@@ -817,6 +861,8 @@ static void statement() {
         forStatement();
     } else if (match(TOKEN_IF)) {
         ifStatement();
+    } else if (match(TOKEN_RETURN)) {
+        returnStatement();
     } else if (match(TOKEN_WHILE)) {
         whileStatement();
     } else if (match(TOKEN_LEFT_BRACE)) {

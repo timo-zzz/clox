@@ -1,6 +1,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "common.h"
 #include "compiler.h"
@@ -10,6 +11,11 @@
 #include "vm.h"
 
 VM vm;
+
+// Creates a Lox function for the C clock() function
+static Value clockNative(int argCount, Value* args) {
+    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
 
 // Resets the stack. Wow! I would've never guessed!
 static void resetStack() {
@@ -24,11 +30,37 @@ static void runtimeError(const char* format, ...) {
     va_end(args);
     fputs("\n", stderr);
 
+    // Print out a stack trace. Prints out each function that was executing when the program errored.
+    for (int i = vm.frameCount - 1; i >= 0; i--) {
+        // Get the current function's info (its a loop)
+        CallFrame* frame = &vm.frames[i];
+        ObjFunction* function = frame->function;
+        size_t instruction = frame->ip - function->chunk.code - 1;
+
+        // Print out the function's info
+        fprintf(stderr, "[line %d] in ",
+                function->chunk.lines[instruction]);
+        if (function->name == NULL) { // Print out script for the top-level function
+            fprintf(stderr, "script\n");
+        } else { // Print out the function's name if its a real function
+            fprintf(stderr, "%s()\n", function->name->chars);
+        }
+    }
+
     CallFrame* frame = &vm.frames[vm.frameCount - 1]; // Get the topmost function call frame
     size_t instruction = frame->ip - frame->function->chunk.code - 1; // ip minus the start of the chunk (so where the ip started) gets us the # of how far the ip has advanced, therefore what index we are currently at in the chunk's bytecode array.
     int line = frame->function->chunk.lines[instruction];
     fprintf(stderr, "[line %d] in script\n", line);
     resetStack();
+}
+
+// Used to define a native function in Lox
+static void defineNative(const char* name, NativeFn function) {
+    push(OBJ_VAL(copyString(name, (int)strlen(name))));
+    push(OBJ_VAL(newNative(function)));
+    tableSet(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+    pop();
+    pop();
 }
 
 void initVM() {
@@ -37,6 +69,8 @@ void initVM() {
 
     initTable(&vm.globals); // Global variable table
     initTable(&vm.strings); // Interned string table
+
+    defineNative("clock", clockNative);
 }
 
 void freeVM() {
@@ -55,10 +89,61 @@ Value pop() {
     return *vm.stackTop;
 }
 
-// Returns a Value from the stack without popping it
+// Returns a Value from the stack without popping it. Accesses the index at the top of stack - 1 - distance.
 static Value peek(int distance) {
-    // stackTop is a pointer to the top of the stack, so this is doing pointer math to find values
+    // stackTop is a pointer to the top of the stack, so this is doing pointer math to access -1 - distance from the top of the stack.
     return vm.stackTop[-1 - distance];
+}
+
+// The method for a call
+static bool call(ObjFunction* function, int argCount) {
+    // Check if the argCount matches the number of parameters the function should have
+    if (argCount != function->arity) {
+        runtimeError("Expected %d arguments but got %d.",
+            function->arity, argCount);
+        return false; // Return that the call failed
+    }
+
+    // If we are too many frames deep, error. The CallFrame array's size is fixed.
+    if (vm.frameCount == FRAMES_MAX) {
+        runtimeError("Stack overflow.");
+        return false;
+    }
+
+    // Increase our frame/scope depth
+    CallFrame* frame = &vm.frames[vm.frameCount++];
+
+    // Initialize the CallFrame
+    frame->function = function;
+    frame->ip = function->chunk.code; // Set ip to the start of the function's bytecode array (which is also a (decayed) pointer! The ip just points to our current location during our traversal of that array).
+    frame->slots = vm.stackTop - argCount - 1; // Give the frame its correct window on the stack
+    return true; // Return that the call was successful
+}
+
+// Checks if a call is valid. If it is, then call.
+static bool callValue(Value callee, int argCount) {
+    // Check if the Value is actually a callable Obj
+    if (IS_OBJ(callee)) {
+        switch(OBJ_TYPE(callee)) {
+            case OBJ_FUNCTION:
+                return call(AS_FUNCTION(callee), argCount);
+            case OBJ_NATIVE: {
+                // Get the C function pointer, then use that pointer to call it. No need for CallFrames, C handles all that nasty stuff.
+                NativeFn native = AS_NATIVE(callee);
+                Value result = native(argCount, vm.stackTop - argCount);
+
+                // Even though we didn't use a CallFrame, we still need to remove the function call's arguments from the stack  
+                vm.stackTop -= argCount + 1;
+                push(result);
+                return true;
+            }
+            default:
+                break; // Fall through if it's a non-callable object type
+        }
+    }
+    // Return an error if this object type isn't callable
+    runtimeError("Can only call functions and classes.");
+    return false; // Return that the call was unsuccessful
 }
 
 static bool isFalsey(Value value) {
@@ -243,9 +328,32 @@ static InterpretResult run() {
                 frame->ip -= offset;
                 break;
             }
+            case OP_CALL: {
+                int argCount = READ_BYTE(); // argCount was emitted onto the stack as an operand
+                // If the call fails, return a runtime error. callValue's side effect executes the call if the call is succesful.
+                if (!callValue(peek(argCount), argCount)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = &vm.frames[vm.frameCount - 1]; // Move back a frame after calling the function
+                break;
+            }
             case OP_RETURN: {
-                // Exit ENTIRE interpreter loop
-                return INTERPRET_OK;
+                // Save the function's result, since we're about to pop the function's stack/CallFrame
+                Value result = pop(); 
+
+                // Go back a frame, since we're done with a function
+                vm.frameCount--; 
+
+                // If the frame count is 0, that means we're done with the program. So we pop the top-level function and exit the interpreter.
+                if (vm.frameCount == 0) {
+                    pop();
+                    return INTERPRET_OK;
+                }
+
+                vm.stackTop = frame->slots; // The top of the stack is now the beginning of that function's frame
+                push(result); // Push the function's result back onto the stack
+                frame = &vm.frames[vm.frameCount - 1]; // Go back to the former frame
+                break;
             }
         }
     }
@@ -265,10 +373,7 @@ InterpretResult interpret(const char* source) {
     // Store the top-level, implicit main function on the stack
     push(OBJ_VAL(function));
     // Prepare the function's call frame so it can be executed
-    CallFrame* frame = &vm.frames[vm.frameCount++];
-    frame->function = function; 
-    frame->ip = function->chunk.code; // Set ip to the start of the function's bytecode array (which is also a (decayed) pointer! The ip just points to our current location during our traversal of that array).
-    frame->slots = vm.stack; // Set the call frame's frame/window to the bootom of the stack
+    call(function, 0);
 
     return run();
 }
