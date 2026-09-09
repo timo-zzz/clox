@@ -292,6 +292,7 @@ static void binary(bool canAssign) {
     }
 }
 
+// Returns the number of args
 static uint8_t argumentList() {
     uint8_t argCount = 0;
     if (!check(TOKEN_RIGHT_PAREN)) {
@@ -385,7 +386,7 @@ static void namedVariable(Token name, bool canAssign) {
         emitBytes(setOp, (uint8_t)arg); // Cast back to unsigned int
     } else {
         // Emit the instructions to access variable
-        emitBytes(OP_GET_GLOBAL, (uint8_t)arg); // Cast back to unsigned int
+        emitBytes(getOp, (uint8_t)arg); // Cast back to unsigned int
     }
 }
 
@@ -427,7 +428,7 @@ static void and_(bool canAssign) {
   This information is stored in a ParseRule struct. So, using a token type, we can easily look up its compiling function.
 */
 ParseRule rules[] = {
-    [TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_NONE}, // Function calls are kind of like an infix expression, with ( being the operator.
+    [TOKEN_LEFT_PAREN]    = {grouping, call,   PREC_CALL}, // Function calls are kind of like an infix expression, with ( being the operator.
     [TOKEN_RIGHT_PAREN]   = {NULL,     NULL,   PREC_NONE},
     [TOKEN_LEFT_BRACE]    = {NULL,     NULL,   PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = {NULL,     NULL,   PREC_NONE},
