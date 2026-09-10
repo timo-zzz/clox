@@ -9,7 +9,7 @@
 #define STACK_MAX (FRAMES_MAX * UINT8_COUNT)
 
 typedef struct {
-    ObjFunction* function; // Pointer to the function thats being called
+    ObjClosure* closure; // Pointer to the closure/function thats being called
     uint8_t* ip; // Instruction pointer, points to the current bytecode instruction. Represents the return address in a function call.
     Value* slots; // First slot in the VM's value stack that the function can use
 } CallFrame; // Represents one single ongoing function call. One of these structs are created everytime we call a Lox function.

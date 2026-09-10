@@ -21,6 +21,13 @@ static Obj* allocateObject(size_t size, ObjType type) {
     return object;
 }
 
+// Initializes a new closure
+ObjClosure* newClosure(ObjFunction* function) {
+    ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+    closure->function = function;
+    return closure;
+}
+
 // Initializes a new, empty function. Like a default constructor for the function object.
 ObjFunction* newFunction() {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
@@ -96,7 +103,10 @@ static void printFunction(ObjFunction* function) {
 
 void printObject(Value value) {
     switch (OBJ_TYPE(value)) {
-        case OBJ_FUNCTION: // Since Lox functions are first class (objects), and all Lox objects are printable, functions are printable!
+        case OBJ_CLOSURE: // Since Lox closures are first class objects, and all Lox objects are printable, closures are printable!
+            printFunction(AS_CLOSURE(value)->function);
+            break;
+        case OBJ_FUNCTION: // Since Lox functions are first class objects, and all Lox objects are printable, functions are printable!
             printFunction(AS_FUNCTION(value));
             break;
         case OBJ_NATIVE:

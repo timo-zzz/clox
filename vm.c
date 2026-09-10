@@ -34,7 +34,7 @@ static void runtimeError(const char* format, ...) {
     for (int i = vm.frameCount - 1; i >= 0; i--) {
         // Get the current function's info (its a loop)
         CallFrame* frame = &vm.frames[i];
-        ObjFunction* function = frame->function;
+        ObjFunction* function = frame->closure->function;
         size_t instruction = frame->ip - function->chunk.code - 1;
 
         // Print out the function's info
@@ -48,8 +48,8 @@ static void runtimeError(const char* format, ...) {
     }
 
     CallFrame* frame = &vm.frames[vm.frameCount - 1]; // Get the topmost function call frame
-    size_t instruction = frame->ip - frame->function->chunk.code - 1; // ip minus the start of the chunk (so where the ip started) gets us the # of how far the ip has advanced, therefore what index we are currently at in the chunk's bytecode array.
-    int line = frame->function->chunk.lines[instruction];
+    size_t instruction = frame->ip - frame->closure->function->chunk.code - 1; // ip minus the start of the chunk (so where the ip started) gets us the # of how far the ip has advanced, therefore what index we are currently at in the chunk's bytecode array.
+    int line = frame->closure->function->chunk.lines[instruction];
     fprintf(stderr, "[line %d] in script\n", line);
     resetStack();
 }
@@ -96,11 +96,11 @@ static Value peek(int distance) {
 }
 
 // The method for a call
-static bool call(ObjFunction* function, int argCount) {
+static bool call(ObjClosure* closure, int argCount) {
     // Check if the argCount matches the number of parameters the function should have
-    if (argCount != function->arity) {
+    if (argCount != closure->function->arity) {
         runtimeError("Expected %d arguments but got %d.",
-            function->arity, argCount);
+            closure->function->arity, argCount);
         return false; // Return that the call failed
     }
 
@@ -114,8 +114,8 @@ static bool call(ObjFunction* function, int argCount) {
     CallFrame* frame = &vm.frames[vm.frameCount++];
 
     // Initialize the CallFrame
-    frame->function = function;
-    frame->ip = function->chunk.code; // Set ip to the start of the function's bytecode array (which is also a (decayed) pointer! The ip just points to our current location during our traversal of that array).
+    frame->closure = closure;
+    frame->ip = closure->function->chunk.code; // Set ip to the start of the function's bytecode array (which is also a (decayed) pointer! The ip just points to our current location during our traversal of that array).
     frame->slots = vm.stackTop - argCount - 1; // Give the frame its correct window on the stack
     return true; // Return that the call was successful
 }
@@ -125,8 +125,8 @@ static bool callValue(Value callee, int argCount) {
     // Check if the Value is actually a callable Obj
     if (IS_OBJ(callee)) {
         switch(OBJ_TYPE(callee)) {
-            case OBJ_FUNCTION:
-                return call(AS_FUNCTION(callee), argCount);
+            case OBJ_CLOSURE: // Since all functions are wrapped in ObjClosures, an ObjFunction is never directly called.
+                return call(AS_CLOSURE(callee), argCount);
             case OBJ_NATIVE: {
                 // Get the C function pointer, then use that pointer to call it. No need for CallFrames, C handles all that nasty stuff.
                 NativeFn native = AS_NATIVE(callee);
@@ -183,7 +183,7 @@ static InterpretResult run() {
     (frame->ip += 2, \
     (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1])) // Reads a short (16-bit) number from the stack
 
-#define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
+#define READ_CONSTANT() (frame->closure->function->chunk.constants.values[READ_BYTE()]) // Gets a constant from the constant table. The bytecode array stores the index of a Value in the constant pool.
 
 #define READ_STRING() AS_STRING(READ_CONSTANT()) // Reads a one byte operand (the idx of the string) and returns the string at that index.
 #define BINARY_OP(valueType, op) \
@@ -206,8 +206,8 @@ static InterpretResult run() {
             printf(" ]");
         }
         printf("\n");
-        disassembleInstruction(&frame->function->chunk, 
-            (int)(frame->ip - frame->function->chunk.code));
+        disassembleInstruction(&frame->closure->function->chunk, 
+            (int)(frame->ip - frame->closure->function->chunk.code));
 #endif
         uint8_t instruction;
         switch (instruction = READ_BYTE()) {
@@ -337,6 +337,12 @@ static InterpretResult run() {
                 frame = &vm.frames[vm.frameCount - 1]; // Move back a frame after calling the function
                 break;
             }
+            case OP_CLOSURE: {
+                ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
+                ObjClosure* closure = newClosure(function);
+                push(OBJ_VAL(closure));
+                break;
+            }
             case OP_RETURN: {
                 // Save the function's result, since we're about to pop the function's stack/CallFrame
                 Value result = pop(); 
@@ -370,10 +376,14 @@ InterpretResult interpret(const char* source) {
     ObjFunction* function = compile(source); 
     if (function == NULL) return INTERPRET_COMPILE_ERROR; // Compiler will always return NULL if theres errors
 
-    // Store the top-level, implicit main function on the stack
+    // Store the top-level, implicit main function on the stack. We still need to push it onto the stack so the GC is aware of it.
     push(OBJ_VAL(function));
+    // Convert the function to a closure
+    ObjClosure* closure = newClosure(function);
+    pop();
+    push(OBJ_VAL(closure));
     // Prepare the function's call frame so it can be executed
-    call(function, 0);
+    call(closure, 0);
 
     return run();
 }

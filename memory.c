@@ -18,10 +18,15 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
 
 static void freeObject(Obj* object) {
     switch(object->type) {
+        case OBJ_CLOSURE: {
+            // We don't need to free the ObjFunction member since multiple closures can own the same ObjFunction. The ObjFunction can only be freed after all the closures using it are freed, which the GC will handle.
+            FREE(ObjClosure, object);
+            break;
+        }
         case OBJ_FUNCTION: {
             ObjFunction* function = (ObjFunction*)object; // Cast the Obj argument to its real type
             freeChunk(&function->chunk); // Free the chunk holding all the function's code
-            // We don't need to free the function's name since its an ObjString, which the garbage collector will handle.
+            // We don't need to free the function's name since its an ObjString, which the garbage collector will handle that.
             FREE(ObjFunction, object);
             break;
         }

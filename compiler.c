@@ -643,8 +643,8 @@ static void function(FunctionType type) {
 
     // Get the result of compilation. End the compiler we used (so we don't need to endScope())
     ObjFunction* function = endCompiler(); 
-    // Put the function we compiled into the surrounding function's constant table.
-    emitBytes(OP_CONSTANT, makeConstant(OBJ_VAL(function))); 
+    // Read the function from the constant table, wrap it in a closure, then push that closure onto the stack.
+    emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function))); 
 }
 
 // Declares a function. Since functions are first-class, we just create a variable and store the function in there. It will become global or local depending on if it's in a block or not.

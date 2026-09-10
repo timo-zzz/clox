@@ -8,10 +8,12 @@
 #define OBJ_TYPE(value)     (AS_OBJ(value)->type)
 
 // Keep the comments on the sides so each macro has its own comment that shows up when you hover over it :)
-#define IS_FUNCTION(value)  isObjType(value, OBJ_FUNCTION); /* Used to check if Objs are functions, for safe casting. */
+#define IS_CLOSURE(value)   isObjType(value, OBJ_CLOSURE) /* Used to check if Objs are closures, for safe casting. */
+#define IS_FUNCTION(value)  isObjType(value, OBJ_FUNCTION) /* Used to check if Objs are functions, for safe casting. */
 #define IS_NATIVE(value)    isObjType(value, OBJ_NATIVE) /* Used to check if Objs are native functions, for safe casting. */
 #define IS_STRING(value)    isObjType(value, OBJ_STRING) /* Used to check if Objs are strings, for safe casting. */
 
+#define AS_CLOSURE(value)   ((ObjClosure*)AS_OBJ(value)) /* Used to cast Objs to ObjClosures, assuming it is safe. */
 #define AS_FUNCTION(value)  ((ObjFunction*)AS_OBJ(value)) /* Used to cast Objs to ObjFunctions, assuming it is safe. */
 #define AS_NATIVE(value) \
     (((ObjNative*)AS_OBJ(value))->function) /* Used to get the corresponding C function pointer from a native function */
@@ -19,6 +21,7 @@
 #define AS_CSTRING(value)   (((ObjString*)AS_OBJ(value))->chars) /* Used to cast Objs/ObjStrings to a C string, assuming it is safe. */
 
 typedef enum {
+    OBJ_CLOSURE,
     OBJ_FUNCTION,
     OBJ_NATIVE,
     OBJ_STRING,
@@ -27,7 +30,7 @@ typedef enum {
 struct Obj {
     ObjType type;
     struct Obj* next;
-}; // No typedef because it was forward declared in value.h
+}; // No typedef because it was forward declared in value.h, which is included in this file.
 
 typedef struct {
     // Having Obj as the first value allows ObjFunction to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
@@ -52,8 +55,15 @@ struct ObjString {
     int length;
     char* chars; // Stored on heap
     uint32_t hash; // We cache (store it in the string) a string's hash so we don't have to re-calculate the hash everytime we look for a key.
-}; // No typedef because it was forward declared in value.h
+}; // No typedef because it was forward declared in value.h, which is included in this file.
 
+typedef struct {
+    // Having Obj as the first value allows ObjClosure to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
+    Obj obj;
+    ObjFunction* function;
+} ObjClosure; // Holds captured runtime values. This is needed because closures need runtime values, but ObjFunctions only hold a compile-time representation.
+
+ObjClosure* newClosure(ObjFunction* function);
 ObjFunction* newFunction(); // Initializes a new function
 ObjNative* newNative(NativeFn function); // Initalizes a new native function
 ObjString* takeString(char* chars, int length);
