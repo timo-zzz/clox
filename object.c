@@ -32,6 +32,7 @@ ObjClosure* newClosure(ObjFunction* function) {
 ObjFunction* newFunction() {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     function->arity = 0; // Number of parameters the function has
+    function->upvalueCount = 0;
     function->name = NULL;
     initChunk(&function->chunk); // Initialize the chunk that will hold the function's code
     return function;

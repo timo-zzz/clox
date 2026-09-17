@@ -36,6 +36,7 @@ typedef struct {
     // Having Obj as the first value allows ObjFunction to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
     Obj obj; 
     int arity; // Number of parameters the function has
+    int upvalueCount; // Count of variables in surrounding (non-global) scopes
     Chunk chunk; // The bytecode chunk holding the function's code
     ObjString* name; // The function's name, represented as a Lox object.
 } ObjFunction; // Represents a Lox function object. Lox functions need to be object because functions are first class in Lox.

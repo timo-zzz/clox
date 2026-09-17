@@ -48,6 +48,11 @@ typedef struct {
     int depth;  // The number of blocks/closures surrounding this variable
 } Local;
 
+typedef struct {
+    uint8_t index; // The upvalue's index in the enclosing compiler's local array.
+    bool isLocal;  // Denotes if the upvalue is from the immediately enclosing function (true) or not (false)
+} Upvalue;
+
 // Tells the compiler when it is compiling inside of a function or not (so top level code). See first comment in the Compiler struct.
 typedef enum {
     TYPE_FUNCTION,
@@ -63,9 +68,10 @@ typedef struct Compiler {
     ObjFunction* function; // Tracks the function we are currently compiling to
     FunctionType type;     // Tracks the type (top-level or real function) that we are currently compiling
 
-    Local locals[UINT8_COUNT]; // Array of all local variables in every part of the compilation process. Ordered in the order they appear in code
-    int localCount;            // How many locals are in scope (how many array slots are in use)
-    int scopeDepth;            // The number of blocks/closures surrounding the code we're currently compiling
+    Local locals[UINT8_COUNT];     // Array of all local variables in every part of the compilation process. Ordered in the order they appear in code
+    int localCount;                // How many locals are in scope (how many array slots are in use)
+    Upvalue upvalues[UINT8_COUNT]; // Holds pointers to local variables in surrounding (non-global) scopes. Works like the array of locals.
+    int scopeDepth;                // The number of blocks/closures surrounding the code we're currently compiling
 } Compiler;
 
 Parser parser;
@@ -271,6 +277,54 @@ static uint8_t identifierConstant(Token* name);
 
 static int resolveLocal(Compiler* compiler, Token* name);
 
+// Adds an upvalue to the current function's upvalue array. Returns its index after its added.
+static int addUpvalue(Compiler* compiler, uint8_t index, bool isLocal) {
+    int upvalueCount = compiler->function->upvalueCount;
+    
+    // If this upvalue already exists in the array, return its index instead of adding it again
+    for (int i = 0; i < upvalueCount; i++) {
+        // Loop through the whole upvalue array
+        Upvalue* upvalue = &compiler->upvalues[i];
+        if (upvalue->index == index && upvalue->isLocal == isLocal) {
+            return i;
+        }
+    }
+
+    // Errors if this function has too many upvalues
+    if (upvalueCount == UINT8_COUNT) {
+        error("Too many closure variables in function.");
+        return 0;
+    }
+    
+    compiler->upvalues[upvalueCount].isLocal = isLocal;
+    compiler->upvalues[upvalueCount].index = index;
+    // Return the index of the upvalue to be used as an operand
+    return compiler->function->upvalueCount++;
+}
+
+// Returns the index for an upvalue after it is added. Remember, this is always called if local variables aren't resolved. So we know that this function doesn't have locals in its own scope.
+static int resolveUpvalue(Compiler* compiler, Token* name) {
+    // If the enclosing compiler doesn't exist, this is the outermost, and therefore global compiler. So, we return -1, indicating the variable is global (or undefined).
+    if (compiler->enclosing == NULL) return -1;
+
+    // Attempt to resolve the variable as a local in the enclosing compiler
+    int local = resolveLocal(compiler->enclosing, name);
+    // If it is a local in the enclosing compiler, add it to this compiler's upvalue array. Also acts as the base case.
+    if (local != -1) {
+        return addUpvalue(compiler, (uint8_t)local, true);
+    }
+
+    // If the variable doesn't exist as a local in the immediately enclosing function, check the function enclosing that function (by checking that function's upvalues).
+    // Basically, we're adding the immediately enclosing function's upvalues to this function's upvalue array too.
+    int upvalue = resolveUpvalue(compiler->enclosing, name);
+    if (upvalue != -1) {
+        // isLocal is false because it is not from the immediately enclosing function
+        return addUpvalue(compiler, (uint8_t)upvalue, false);
+    }
+
+    return -1;
+}
+
 // Compiles the right operand, then emits the operation opcode
 static void binary(bool canAssign) {
     // Handles operation precedence, so we can use 1 function for all binary operations
@@ -373,6 +427,16 @@ static void namedVariable(Token name, bool canAssign) {
     if (arg != -1) {
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
+    } else if ((arg = resolveUpvalue(current, &name)) != -1) {
+        /*
+        clox walks block scopes from innermost to outermost. Without this step, an inner function is compiled, 
+        if a variable is outside of its scope, it assumes that the variable is global. So, we effectively skip 
+        any outer local variables (say, from an enclosing function). This is because the get global instruction is called
+        Since those compiled local variables aren't in the global constant pool, of course, they can't be called.
+        This step actually evaluates outer local variables.
+        */ 
+        getOp = OP_GET_UPVALUE;
+        setOp = OP_SET_UPVALUE;
     } else {
         // "Add" the variable's name to the constant table (but really get its index since its an interned string (if it exists ofc))
         arg = identifierConstant(&name);
@@ -645,6 +709,12 @@ static void function(FunctionType type) {
     ObjFunction* function = endCompiler(); 
     // Read the function from the constant table, wrap it in a closure, then push that closure onto the stack.
     emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function))); 
+
+    // Push details about each upvalue onto the stack for OP_CLOSURE
+    for (int i = 0; i < function->upvalueCount; i++) {
+        emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
+        emitByte(compiler.upvalues[i].index);
+    }
 }
 
 // Declares a function. Since functions are first-class, we just create a variable and store the function in there. It will become global or local depending on if it's in a block or not.
