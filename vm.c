@@ -146,6 +146,11 @@ static bool callValue(Value callee, int argCount) {
     return false; // Return that the call was unsuccessful
 }
 
+static ObjUpvalue* captureUpvalue(Value* local) {
+    ObjUpvalue* createdUpvalue = newUpvalue(local);
+    return createdUpvalue;
+}
+
 static bool isFalsey(Value value) {
     return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
@@ -267,6 +272,18 @@ static InterpretResult run() {
                 }
                 break;
             }
+            case OP_GET_UPVALUE: {
+                uint8_t slot = READ_BYTE();
+                // Read the upvalue using its index and push it onto the stack.
+                push(*frame->closure->upvalues[slot]->location);
+                break;
+            }
+            case OP_SET_UPVALUE: {
+                uint8_t slot = READ_BYTE();
+                // Take the value on the top of the stack and store it at the index operand
+                *frame->closure->upvalues[slot]->location = peek(0);
+                break;
+            }
             case OP_EQUAL: {
                 Value b = pop();
                 Value a = pop();
@@ -341,6 +358,19 @@ static InterpretResult run() {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = newClosure(function);
                 push(OBJ_VAL(closure));
+                // Capture each upvalue's runtime representation
+                for (int i = 0; i < closure->upvalueCount; i++) {
+                    uint8_t isLocal = READ_BYTE();
+                    uint8_t index = READ_BYTE();
+                    if (isLocal) { // If the upvalue is local to the enclosing function
+                        closure->upvalues[i] = 
+                            captureUpvalue(frame->slots + index);
+                    } else { // If the upvalue is at a higher level
+                        // This is possible because this instruction is called when the current function is the surrounding one.
+                        // Think about it. The instruction means there is a CLOSURE. A closure within this function.
+                        closure->upvalues[i] = frame->closure->upvalues[index];
+                    }
+                }
                 break;
             }
             case OP_RETURN: {

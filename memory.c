@@ -1,6 +1,6 @@
 #include <stdlib.h>
 
-#include "memory.h"
+#include "memory.h" // Includes object.h
 #include "vm.h"
 
 // Used to reallocate or free memory. All memory management goes through this function so the VM can track memory (we free memory using the FREE() macro, which uses this method)
@@ -19,6 +19,10 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
 static void freeObject(Obj* object) {
     switch(object->type) {
         case OBJ_CLOSURE: {
+            // Free the closure's upvalue array
+            ObjClosure* closure = (ObjClosure*)object;
+            FREE_ARRAY(ObjUpvalue*, closure->upvalues,
+                        closure->upvalueCount);
             // We don't need to free the ObjFunction member since multiple closures can own the same ObjFunction. The ObjFunction can only be freed after all the closures using it are freed, which the GC will handle.
             FREE(ObjClosure, object);
             break;
@@ -40,7 +44,10 @@ static void freeObject(Obj* object) {
             FREE(ObjString, object);
             break;
         }
-        
+        case OBJ_UPVALUE: {
+            FREE(ObjUpvalue, object);
+            break;
+        }
     }
 }
 

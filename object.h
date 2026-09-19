@@ -25,6 +25,7 @@ typedef enum {
     OBJ_FUNCTION,
     OBJ_NATIVE,
     OBJ_STRING,
+    OBJ_UPVALUE
 } ObjType;
 
 struct Obj {
@@ -58,9 +59,17 @@ struct ObjString {
     uint32_t hash; // We cache (store it in the string) a string's hash so we don't have to re-calculate the hash everytime we look for a key.
 }; // No typedef because it was forward declared in value.h, which is included in this file.
 
+typedef struct ObjUpvalue {
+    // Having Obj as the first value allows ObjUpvalue to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
+    Obj obj; 
+    Value* location; // Pointer to the variable. Could be on the stack or heap. This means that the inner function should be able to read AND write to the variable.
+} ObjUpvalue; // Represents a single captured upvalue
+
 typedef struct {
     // Having Obj as the first value allows ObjClosure to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
     Obj obj;
+    ObjUpvalue** upvalues; // The closure's upvalue array
+    int upvalueCount; // Though ObjFunction already has this field, the GC needs this.
     ObjFunction* function;
 } ObjClosure; // Holds captured runtime values. This is needed because closures need runtime values, but ObjFunctions only hold a compile-time representation.
 
@@ -69,6 +78,7 @@ ObjFunction* newFunction(); // Initializes a new function
 ObjNative* newNative(NativeFn function); // Initalizes a new native function
 ObjString* takeString(char* chars, int length);
 ObjString* copyString(const char* chars, int length);
+ObjUpvalue* newUpvalue(Value* slot); // Argument is a pointer to where the variable lives; it's a pointer to which local array slot the variable is in.
 void printObject(Value value);
 
 // Not put into macro body because "value" is referred to twice.

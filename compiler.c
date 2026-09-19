@@ -710,7 +710,7 @@ static void function(FunctionType type) {
     // Read the function from the constant table, wrap it in a closure, then push that closure onto the stack.
     emitBytes(OP_CLOSURE, makeConstant(OBJ_VAL(function))); 
 
-    // Push details about each upvalue onto the stack for OP_CLOSURE
+    // Push details about each upvalue the closure should own onto the stack for OP_CLOSURE
     for (int i = 0; i < function->upvalueCount; i++) {
         emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
         emitByte(compiler.upvalues[i].index);
