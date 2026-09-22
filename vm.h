@@ -21,6 +21,7 @@ typedef struct {
     Value* stackTop; // Always points to the element after the element last pushed onto the stack
     Table globals; // Global variables
     Table strings; // Interned strings
+    ObjUpvalue* openUpvalues;
     Obj* objects;
 } VM;
 

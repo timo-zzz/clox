@@ -63,6 +63,8 @@ typedef struct ObjUpvalue {
     // Having Obj as the first value allows ObjUpvalue to be safely casted to an Obj, and vice-versa. This also means that they share behavior and state, almost like inheritance in OOP.
     Obj obj; 
     Value* location; // Pointer to the variable. Could be on the stack or heap. This means that the inner function should be able to read AND write to the variable.
+    Value closed; // Place on the heap for the upvalue to live if it becomes closed
+    struct ObjUpvalue* next; // Linked list!
 } ObjUpvalue; // Represents a single captured upvalue
 
 typedef struct {

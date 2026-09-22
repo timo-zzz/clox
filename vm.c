@@ -21,6 +21,7 @@ static Value clockNative(int argCount, Value* args) {
 static void resetStack() {
     vm.stackTop = vm.stack; // Resets the stack to the beginning (moves where we are on the stack right now back to the start)
     vm.frameCount = 0; // Reset the amount of frames 
+    vm.openUpvalues = NULL;
 }
 
 static void runtimeError(const char* format, ...) {
@@ -147,8 +148,41 @@ static bool callValue(Value callee, int argCount) {
 }
 
 static ObjUpvalue* captureUpvalue(Value* local) {
+    ObjUpvalue* prevUpvalue = NULL;
+    ObjUpvalue* upvalue = vm.openUpvalues;
+    // Loop through the VM's upvalue linked list to see if "local" already exists.
+    // Remember, its a sorted linked list. So, if the location is less than local (pointer math), 
+    // local doesn't exist.
+    while (upvalue != NULL && upvalue->location > local) {
+        prevUpvalue = upvalue; // Keep track of the previous value in the linked list
+        upvalue = upvalue->next;
+    }
+
+    // If we find that the local already exists in the upvalue LL, return that.
+    if (upvalue != NULL && upvalue->location == local) {
+        return upvalue;
+    }
+
     ObjUpvalue* createdUpvalue = newUpvalue(local);
+    createdUpvalue->next = upvalue;
+
+    if (prevUpvalue == NULL) {
+        vm.openUpvalues = createdUpvalue;
+    } else {
+        prevUpvalue->next = createdUpvalue;
+    }
     return createdUpvalue;
+}
+
+static void closeUpvalues(Value* last) {
+    // Loop through every value under last and close it over
+    while (vm.openUpvalues != NULL &&
+            vm.openUpvalues->location >= last) {
+        ObjUpvalue* upvalue = vm.openUpvalues;
+        upvalue->closed = *upvalue->location;
+        upvalue->location = &upvalue->closed;
+        vm.openUpvalues = upvalue->next;
+    }
 }
 
 static bool isFalsey(Value value) {
@@ -373,9 +407,17 @@ static InterpretResult run() {
                 }
                 break;
             }
+            case OP_CLOSE_UPVALUE:
+                // When this instruction is executed, the variable we wanna close is on the top of the stack.
+                closeUpvalues(vm.stackTop - 1);
+                pop();
+                break;
             case OP_RETURN: {
                 // Save the function's result, since we're about to pop the function's stack/CallFrame
                 Value result = pop(); 
+
+                // Close any necessary upvalues when a function returns (its scope ends)
+                closeUpvalues(frame->slots);
 
                 // Go back a frame, since we're done with a function
                 vm.frameCount--; 

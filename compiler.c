@@ -46,6 +46,7 @@ typedef struct {
 typedef struct {
     Token name; // Variable's name
     int depth;  // The number of blocks/closures surrounding this variable
+    bool isCaptured; // If this local variable is a captured upvalue by an inner functions
 } Local;
 
 typedef struct {
@@ -232,6 +233,7 @@ static void initCompiler(Compiler* compiler, FunctionType type) {
     // Compiler reserves the 1st local variable slot for its own use.
     Local* local = &current->locals[current->localCount++];
     local->depth = 0;
+    local->isCaptured = false;
     // Note that "name" is never actually initialized, we are just modifying its fields. So it is still NULL.
     local->name.start = ""; // Empty name so that the user can't create an identifier that refers to it.
     local->name.length = 0;
@@ -261,8 +263,15 @@ static void endScope() {
     current->scopeDepth--;
 
     // Pop local variables after exiting a scope. localCount > 0 ensures everything gets popped in an outermost scope (its an AND so it doesnt apply outside outermost scopes)
-    while (current->localCount > 0 && current->locals[current->localCount - 1].depth > current->scopeDepth) {
-        emitByte(OP_POP);
+    while (current->localCount > 0 && 
+            current->locals[current->localCount - 1].depth >
+                 current->scopeDepth) {
+        // If this variable is a captured upvalue, "close" it, meaning put it onto the heap.
+        if (current->locals[current->localCount - 1].isCaptured) {
+            emitByte(OP_CLOSE_UPVALUE);
+        } else { // If the local variable is normal, just pop it.
+            emitByte(OP_POP);
+        }
         current->localCount--;
     }
 }
@@ -311,6 +320,7 @@ static int resolveUpvalue(Compiler* compiler, Token* name) {
     int local = resolveLocal(compiler->enclosing, name);
     // If it is a local in the enclosing compiler, add it to this compiler's upvalue array. Also acts as the base case.
     if (local != -1) {
+        compiler->enclosing->locals[local].isCaptured = true;
         return addUpvalue(compiler, (uint8_t)local, true);
     }
 
@@ -606,6 +616,7 @@ static void addLocal(Token name) {
     // Store the local
     local->name = name;
     local->depth = -1; // Represents an uninitialized state to prevent a variable from setting it to itself (e.x. var a = a;)
+    local->isCaptured = false; // Locals aren't captured by default
 }
 
 // Used to declare local variables
