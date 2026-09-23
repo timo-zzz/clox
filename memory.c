@@ -3,8 +3,21 @@
 #include "memory.h" // Includes object.h
 #include "vm.h"
 
+#ifdef DEBUG_LOG_GC
+#include <stdio.h>
+#include "debug.h"
+#endif
+
 // Used to reallocate or free memory. All memory management goes through this function so the VM can track memory (we free memory using the FREE() macro, which uses this method)
 void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
+    // Run the GC when new memory is allocated.
+    // The if statement ensures we don't run the GC when we free memory (which would make the GC... recursive.)
+    if (newSize > oldSize) {
+#ifdef DEBUG_STRESS_GC
+        collectGarbage();
+#endif
+    }
+    
     if (newSize == 0) {
         free(pointer);
         return NULL;
@@ -17,6 +30,10 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
 }
 
 static void freeObject(Obj* object) {
+#ifdef DEBUG_LOG_GC
+    printf("%p free type %d\n", (void*)object, object->type);
+#endif
+
     switch(object->type) {
         case OBJ_CLOSURE: {
             // Free the closure's upvalue array
@@ -49,6 +66,16 @@ static void freeObject(Obj* object) {
             break;
         }
     }
+}
+
+void collectGarbage() {
+#ifdef DEBUG_LOG_GC
+    printf("-- gc begin\n");
+#endif
+
+#ifdef DEBUG_LOG_GC
+    printf("-- gc end\n");
+#endif
 }
 
 void freeObjects() {
