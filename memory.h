@@ -20,6 +20,8 @@
     reallocate(pointer, sizeof(type) * (oldCount), 0)
 
 void* reallocate(void* pointer, size_t oldSize, size_t newSize);
+void markObject(Obj* object);
+void markValue(Value value); // Marks a value as reachable (meaning possibly usable), signifying to our GC that it should NOT be freed.
 void collectGarbage();
 void freeObjects();
 

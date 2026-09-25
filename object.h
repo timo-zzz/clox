@@ -30,6 +30,7 @@ typedef enum {
 
 struct Obj {
     ObjType type;
+    bool isMarked;
     struct Obj* next;
 }; // No typedef because it was forward declared in value.h, which is included in this file.
 

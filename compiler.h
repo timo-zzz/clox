@@ -5,4 +5,6 @@
 #include "vm.h"
 
 ObjFunction* compile(const char* source); // Returns the function the VM will run.
+void markCompilerRoots();
+
 #endif
