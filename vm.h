@@ -23,6 +23,11 @@ typedef struct {
     Table strings; // Interned strings
     ObjUpvalue* openUpvalues;
     Obj* objects;
+    // Gray objects are objects that are reachable, but we haven't check the objects/values
+    // that they reference (like their members) yet
+    int grayCount;
+    int grayCapacity;
+    Obj** grayStack;
 } VM;
 
 typedef enum {

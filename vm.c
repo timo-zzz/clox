@@ -68,6 +68,10 @@ void initVM() {
     resetStack();
     vm.objects = NULL;
 
+    vm.grayCount = 0;
+    vm.grayCapacity = 0;
+    vm.grayStack = NULL;
+
     initTable(&vm.globals); // Global variable table
     initTable(&vm.strings); // Interned string table
 
