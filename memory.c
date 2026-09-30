@@ -179,13 +179,42 @@ static void traceReferences() {
     }
 }
 
+static void sweep() {
+    Obj* previous = NULL;
+    Obj* object = vm.objects;
+    // Iterate over the whole Obj linked list
+    while (object != NULL) {
+        // If Obj isMarked, just move onto the next Obj
+        if (object->isMarked) {
+            object->isMarked = false; // Turn each black Obj back to white, resetting the GC
+            previous = object;
+            object = object->next;
+        } else { // If Obj is white, free it!
+            Obj* unreached = object;
+            object = object->next;
+            // Patch up the Obj linked list since we're freeing this Obj
+            if (previous != NULL) {
+                previous->next = object;
+            } else { // If the first Obj is white, make the next Obj the first in the linked list
+                vm.objects = object;
+            }
+
+            // Free the white Obj
+            freeObject(unreached);
+        }
+    }
+}
+
+// I bet you can't guess what this function does!
 void collectGarbage() {
 #ifdef DEBUG_LOG_GC
     printf("-- gc begin\n");
 #endif
 
     markRoots();
-    traceReferences();
+    traceReferences(); // Doesn't treat string table as roots. If we did, we would never free any string!
+    tableRemoveWhite(&vm.strings);
+    sweep();
 
 #ifdef DEBUG_LOG_GC
     printf("-- gc end\n");
