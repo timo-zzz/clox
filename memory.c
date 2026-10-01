@@ -9,14 +9,23 @@
 #include "debug.h"
 #endif
 
+// Arbitrary
+#define GC_HEAP_GROW_FACTOR 2
+
 // Used to reallocate or free memory. All memory management goes through this function so the VM can track memory (we free memory using the FREE() macro, which uses this method)
 void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
-    // Run the GC when new memory is allocated.
+    vm.bytesAllocated += newSize - oldSize; // Tell the VM how much memory its allocating
     // The if statement ensures we don't run the GC when we free memory (which would make the GC... recursive.)
     if (newSize > oldSize) {
 #ifdef DEBUG_STRESS_GC
+        // Runs the GC when new memory is allocated.
         collectGarbage();
 #endif
+
+        // When the VM reaches the threshold for the amount of memory allocated on the heap, run the GC
+        if (vm.bytesAllocated > vm.nextGC) {
+            collectGarbage();
+        }
     }
     
     if (newSize == 0) {
@@ -209,6 +218,7 @@ static void sweep() {
 void collectGarbage() {
 #ifdef DEBUG_LOG_GC
     printf("-- gc begin\n");
+    size_t before = vm.bytesAllocated;
 #endif
 
     markRoots();
@@ -216,8 +226,17 @@ void collectGarbage() {
     tableRemoveWhite(&vm.strings);
     sweep();
 
+    // After we sweep, we know how much live memory is left on the heap. We adjust the
+    // threshold for triggering the GC based off of this.
+    vm.nextGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;
+
 #ifdef DEBUG_LOG_GC
     printf("-- gc end\n");
+    // Log how much memory the GC collect, the before and after amount of memory,
+    // and the next time that the GC will trigger
+    printf("   collected %zu bytes (from %zu to %zu) next at %zu\n",
+            before - vm.bytesAllocated, before, vm.bytesAllocated,
+            vm.nextGC);
 #endif
 }
 

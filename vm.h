@@ -22,6 +22,9 @@ typedef struct {
     Table globals; // Global variables
     Table strings; // Interned strings
     ObjUpvalue* openUpvalues;
+
+    size_t bytesAllocated; // How many bytes the VM has allocated on the heap
+    size_t nextGC; // When bytesAllocated reaches this number, the GC will run
     Obj* objects;
     // Gray objects are objects that are reachable, but we haven't check the objects/values
     // that they reference (like their members) yet
