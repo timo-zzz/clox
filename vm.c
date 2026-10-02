@@ -196,8 +196,10 @@ static bool isFalsey(Value value) {
 }
 
 static void concatenate() {
-    ObjString* b = AS_STRING(pop());
-    ObjString* a = AS_STRING(pop());
+    // Peek the string operands instead of popping so that the GC is still able
+    // to reach and mark them, so that they aren't accidentally freed
+    ObjString* b = AS_STRING(peek(0));
+    ObjString* a = AS_STRING(peek(1));
 
     // Calculate length of new string
     int length = a->length + b->length;
@@ -214,6 +216,8 @@ static void concatenate() {
 
     // Wrap the string into an ObjString, then push it onto the stack
     ObjString* result = takeString(chars, length);
+    pop(); // Pop the operands
+    pop();
     push(OBJ_VAL(result));
 }
 

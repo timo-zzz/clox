@@ -159,7 +159,7 @@ ObjString* tableFindString(Table* table, const char* chars, int length, uint32_t
     }
 }
 
-// Removes any white (unreachable) strings from the table
+// Removes any white (unreachable) strings from the string table
 void tableRemoveWhite(Table* table) {
     for (int i = 0; i < table->capacity; i++) {
         Entry* entry = &table->entries[i];

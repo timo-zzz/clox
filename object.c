@@ -64,7 +64,12 @@ static ObjString* allocateString(char* chars, int length, uint32_t hash) {
     ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING); // If this is a ObjString constructor, ALLOCATE_OBJ is like the Obj superclass constructor.
     string->length = length;
     string->hash = hash;
+
+    // Make sure string is reachable so that the GC marks its and doesn't free it before
+    // it gets published to the string intern table
+    push(OBJ_VAL(string));
     tableSet(&vm.strings, string, NIL_VAL); // Intern the string
+    pop();
     string->chars = chars;
     return string;
 }
